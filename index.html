@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Wayvora - The intelligent luxury travel platform to explore iconic destinations, check live weather, and craft day-by-day itineraries." />
+  <title>Wayvora - Explore. Discover. Travel.</title>
+
+  <!-- Google Fonts Preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar" id="main-navbar">
+    <div class="container">
+      <a href="#home" class="navbar-brand" aria-label="Wayvora Homepage">
+        <div class="brand-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+          </svg>
+        </div>
+        <span class="brand-name">Wayvora</span>
+      </a>
+
+      <!-- Desktop & Mobile Navigation Links -->
+      <nav class="navbar-nav" id="navbar-menu">
+        <a href="#home" class="nav-link active">Home</a>
+        <a href="#explore" class="nav-link">Explore</a>
+        <a href="#planner" class="nav-link">Trip Planner</a>
+        <button class="nav-link nav-weather-btn" id="nav-weather-btn" title="Live Weather Forecast">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          Live Weather
+        </button>
+        <a href="#favourites" class="nav-link">
+          Favourites 
+          <span class="fav-count-badge" id="nav-fav-badge" style="display: none;">0</span>
+        </a>
+        <a href="#about" class="nav-link">About</a>
+        <button class="btn btn-primary btn-sm ml-2 nav-cta-btn" id="nav-cta-plan-trip">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Plan a Trip
+        </button>
+
+        <!-- Mobile Drawer Currency & Auth Block -->
+        <div class="mobile-nav-auth-block" id="mobile-nav-auth-block">
+          <div class="mobile-currency-row mb-3">
+            <label for="mobile-currency-select" class="text-xs text-muted font-bold block mb-1">Display Currency</label>
+            <div class="currency-picker-pill">
+              <span class="currency-picker-icon">🌐</span>
+              <select id="mobile-currency-select" class="nav-currency-select" aria-label="Choose Preferred Currency Mobile">
+                <option value="LOCAL">Local (Destination Currency)</option>
+                <option value="USD">USD ($ - US Dollar)</option>
+                <option value="EUR">EUR (€ - Euro)</option>
+                <option value="GBP">GBP (£ - British Pound)</option>
+                <option value="JPY">JPY (¥ - Japanese Yen)</option>
+                <option value="INR">INR (₹ - Indian Rupee)</option>
+                <option value="AUD">AUD (A$ - Australian Dollar)</option>
+                <option value="CAD">CAD (C$ - Canadian Dollar)</option>
+                <option value="CHF">CHF (CHF - Swiss Franc)</option>
+                <option value="AED">AED (AED - UAE Dirham)</option>
+                <option value="IDR">IDR (Rp - Indonesian Rupiah)</option>
+              </select>
+            </div>
+          </div>
+          <div id="mobile-auth-unauth">
+            <button class="btn btn-outline btn-block btn-sm" id="nav-mobile-auth-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              Sign In / Register
+            </button>
+          </div>
+          <div id="mobile-auth-authenticated" style="display: none;">
+            <div class="mobile-user-card">
+              <div class="user-avatar-sm" id="mobile-user-avatar">U</div>
+              <div class="mobile-user-details">
+                <strong id="mobile-user-name">Traveler</strong>
+                <span id="mobile-user-email">user@example.com</span>
+              </div>
+            </div>
+            <button class="btn btn-outline-danger btn-block btn-sm mt-2" id="btn-user-logout-mobile">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Right Header Actions (Currency Selector, Desktop Auth & Mobile Buttons) -->
+      <div class="navbar-right-actions">
+        <!-- Worldwide Currency Selector -->
+        <div class="nav-currency-selector-wrapper" id="nav-currency-selector-wrapper">
+          <label for="nav-currency-select" class="sr-only">Display Currency</label>
+          <div class="currency-picker-pill" title="Choose Display Currency">
+            <span class="currency-picker-icon">🌐</span>
+            <select id="nav-currency-select" class="nav-currency-select" aria-label="Choose Preferred Currency">
+              <option value="LOCAL">Local Currency</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="JPY">JPY (¥)</option>
+              <option value="INR">INR (₹)</option>
+              <option value="AUD">AUD (A$)</option>
+              <option value="CAD">CAD (C$)</option>
+              <option value="CHF">CHF (CHF)</option>
+              <option value="AED">AED (AED)</option>
+              <option value="IDR">IDR (Rp)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Desktop Auth Section -->
+        <div class="desktop-auth-container" id="desktop-auth-container">
+          <!-- Unauthenticated state -->
+          <div id="nav-auth-unauth">
+            <button class="btn-nav-login" id="nav-auth-btn" title="Sign In or Create Account" aria-label="Sign In or Create Account">
+              <span class="user-login-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+              </span>
+              <span class="login-text">Sign In</span>
+            </button>
+          </div>
+
+          <!-- Authenticated state -->
+          <div id="nav-auth-authenticated" class="nav-profile-wrapper" style="display: none;">
+            <button class="nav-user-chip" id="nav-user-btn" aria-haspopup="true" aria-expanded="false" title="Account Menu">
+              <div class="user-avatar-chip" id="user-avatar-initials">T</div>
+              <span class="user-chip-name" id="user-display-name">Traveler</span>
+              <svg class="chevron-down-sm" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+
+            <!-- Dropdown Menu -->
+            <div class="nav-profile-dropdown" id="user-menu-dropdown">
+              <div class="profile-dropdown-header">
+                <div class="profile-header-avatar" id="dropdown-avatar-circle">👤</div>
+                <div class="profile-header-info">
+                  <strong id="user-menu-name">Traveler</strong>
+                  <span id="user-menu-email" class="text-muted text-xs">user@example.com</span>
+                </div>
+              </div>
+              <div class="dropdown-divider"></div>
+              <a href="#planner" class="profile-dropdown-item">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span>My Itineraries</span>
+              </a>
+              <a href="#favourites" class="profile-dropdown-item">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                <span>Saved Favourites</span>
+              </a>
+              <div class="dropdown-divider"></div>
+              <button class="profile-dropdown-item btn-signout-item" id="btn-user-logout">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile Header User Icon Shortcut -->
+        <button class="mobile-header-user-btn" id="mobile-header-user-btn" aria-label="Account">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </button>
+
+        <!-- Mobile Hamburger Button -->
+        <button class="mobile-menu-btn" id="mobile-menu-toggle" aria-label="Toggle navigation menu">
+          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Backdrop Overlay -->
+  <div class="nav-backdrop" id="nav-backdrop"></div>
+
+  <!-- Main SPA Content Wrapper -->
+  <main class="main-content">
+
+    <!-- ==================== VIEW: HOME ==================== -->
+    <section class="view-section active" id="view-home">
+      
+      <!-- Cinematic Hero Section with Video Background -->
+      <div class="hero-section">
+        <div class="hero-media-wrapper">
+          <video class="hero-video" autoplay loop muted playsinline poster="https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1920&q=80">
+            <source src="https://assets.mixkit.co/videos/preview/mixkit-drone-view-of-a-resort-with-wooden-villas-in-the-sea-41133-large.mp4" type="video/mp4" />
+          </video>
+          <div class="hero-bg-fallback"></div>
+        </div>
+        <div class="hero-overlay"></div>
+        
+        <div class="hero-content">
+          <div class="hero-badge animate-fade-in">
+            <span class="badge-sparkle">✨</span>
+            <span>Intelligent Travel Planning & Curated Escapes</span>
+          </div>
+
+          <h1 class="hero-title animate-fade-in">
+            Explore. Discover. <span class="hero-title-accent">Travel.</span>
+          </h1>
+
+          <p class="hero-subtitle animate-fade-in">
+            Curate unforgettable journeys, uncover world-renowned sights, check live destination climates, and orchestrate seamless day-by-day itineraries.
+          </p>
+
+          <!-- Hero Search Bar -->
+          <div class="hero-search-wrapper animate-scale-up">
+            <div class="hero-search-box">
+              <span class="search-icon-hero">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              </span>
+              <input 
+                type="text" 
+                id="hero-search-input" 
+                placeholder="Where to next? Try 'Paris', 'Bali', 'Switzerland', 'Goa'..." 
+                autocomplete="off"
+                aria-label="Search destinations"
+              />
+              <button class="btn btn-primary" id="hero-search-btn">
+                <span>Search</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+              </button>
+            </div>
+            <div class="hero-search-suggestions" id="hero-search-suggestions"></div>
+          </div>
+
+          <!-- Quick Discovery Tags -->
+          <div class="hero-quick-tags animate-fade-in">
+            <span class="tags-lead">Trending themes:</span>
+            <button class="hero-quick-tag" data-tag="Beaches">🏖️ Beaches</button>
+            <button class="hero-quick-tag" data-tag="Mountains">🏔️ Mountains</button>
+            <button class="hero-quick-tag" data-tag="Culture">🏛️ Culture</button>
+            <button class="hero-quick-tag" data-tag="Luxury">✨ Luxury</button>
+            <button class="hero-quick-tag" data-tag="Foodie">🍷 Culinary</button>
+          </div>
+
+          <!-- Hero Action CTAs & Social Proof -->
+          <div class="hero-actions-group mt-4 animate-fade-in">
+            <a href="#explore" class="btn btn-glass btn-lg">
+              Explore All Destinations
+            </a>
+            <a href="#planner" class="btn btn-primary btn-lg ml-2" id="hero-plan-btn">
+              Plan Your Itinerary
+            </a>
+          </div>
+
+          <!-- Social Proof Indicator -->
+          <div class="hero-trust-bar animate-fade-in">
+            <div class="trust-avatars">
+              <span class="avatar-circle">👩‍🦰</span>
+              <span class="avatar-circle">👨‍🦱</span>
+              <span class="avatar-circle">👱‍♀️</span>
+            </div>
+            <div class="trust-text">
+              <span class="trust-stars">★★★★★</span>
+              <span>Trusted by <strong>120,000+</strong> global adventurers</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Popular Destinations Section -->
+      <section class="home-section" id="section-popular">
+        <div class="container">
+          <div class="section-header text-center">
+            <span class="section-tag">Iconic Escapes</span>
+            <h2 class="section-title">Popular Destinations</h2>
+            <p class="section-desc">Handpicked destinations loved by travelers worldwide for their culture, natural wonders, and charm.</p>
+          </div>
+
+          <div class="destinations-grid" id="home-popular-grid">
+            <!-- Dynamically populated from data.js -->
+          </div>
+
+          <div class="text-center mt-4">
+            <a href="#explore" class="btn btn-outline btn-lg">
+              View All Destinations
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trending Destinations Section -->
+      <section class="home-section bg-subtle" id="section-trending">
+        <div class="container">
+          <div class="section-header text-center">
+            <span class="section-tag">What's Hot</span>
+            <h2 class="section-title">Trending This Season</h2>
+            <p class="section-desc">The most sought-after getaways experiencing peak seasonal perfection right now.</p>
+          </div>
+
+          <div class="destinations-grid" id="home-trending-grid">
+            <!-- Dynamically populated from data.js -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Why Choose Wayvora Section -->
+      <section class="home-section" id="section-why-us">
+        <div class="container">
+          <div class="section-header text-center">
+            <span class="section-tag">Why Wayvora</span>
+            <h2 class="section-title">Travel Planning Made Simple</h2>
+            <p class="section-desc">Everything you need to dream, discover, and organize your trips in one place.</p>
+          </div>
+
+          <div class="features-grid">
+            <div class="feature-box">
+              <div class="feature-icon-wrapper">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+              </div>
+              <h3>Curated Destination Guides</h3>
+              <p>In-depth overviews, vetted attractions, optimal visiting seasons, and insider tips for top global destinations.</p>
+            </div>
+
+            <div class="feature-box">
+              <div class="feature-icon-wrapper">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+              </div>
+              <h3>Smart Day-by-Day Itineraries</h3>
+              <p>Organize places by morning, afternoon, and evening. Easily check off activities and export clean printable travel plans.</p>
+            </div>
+
+            <div class="feature-box">
+              <div class="feature-icon-wrapper">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              </div>
+              <h3>Budget Transparency</h3>
+              <p>Realistic estimated daily costs across accommodation, food, transport, and activities so you can budget with confidence.</p>
+            </div>
+
+            <div class="feature-box">
+              <div class="feature-icon-wrapper">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+              </div>
+              <h3>Persistent Favourites</h3>
+              <p>Bookmark destinations you love with one click. Your travel bucket list is saved automatically in your browser.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Travel Inspiration Section -->
+      <section class="home-section bg-subtle" id="section-inspiration">
+        <div class="container">
+          <div class="section-header text-center">
+            <span class="section-tag">Travel Magazine</span>
+            <h2 class="section-title">Travel Stories & Inspiration</h2>
+            <p class="section-desc">Practical tips, packing guides, and insider advice from seasoned globetrotters.</p>
+          </div>
+
+          <div class="articles-grid" id="home-articles-grid">
+            <!-- Dynamically populated from data.js -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Newsletter Section -->
+      <section class="home-section">
+        <div class="container">
+          <div class="newsletter-card">
+            <h2>Ready to Start Your Next Journey?</h2>
+            <p>Join thousands of travelers who receive curated flight insights, destination guides, and seasonal discounts directly in their inbox.</p>
+            <form class="newsletter-form" id="newsletter-form">
+              <input type="email" id="newsletter-email" placeholder="Enter your email address..." required />
+              <button type="submit">Subscribe</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ==================== VIEW: EXPLORE ==================== -->
+    <section class="view-section" id="view-explore">
+      
+      <!-- Explore Header & Filter Panel -->
+      <div class="explore-page-header">
+        <div class="container">
+          <div class="section-header mb-2">
+            <span class="section-tag">Global Catalog</span>
+            <h1 class="section-title">Explore Destinations</h1>
+            <p class="section-desc">Discover handpicked destinations across Europe, Asia, the Americas, and the Middle East.</p>
+          </div>
+
+          <!-- Controls Panel -->
+          <div class="explore-controls-panel">
+            <!-- Live Search Bar -->
+            <div class="explore-search-bar">
+              <span class="search-input-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              </span>
+              <input 
+                type="text" 
+                id="explore-search-input" 
+                placeholder="Search destinations by name, country, attraction, or keyword..." 
+                autocomplete="off"
+              />
+              <button class="btn-clear-search" id="btn-clear-search" title="Clear search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <!-- Region Filter Pills -->
+            <div class="region-pills-scroll">
+              <button class="region-pill active" data-region="All">All Regions</button>
+              <button class="region-pill" data-region="India">India</button>
+              <button class="region-pill" data-region="Europe">Europe</button>
+              <button class="region-pill" data-region="Asia">Asia</button>
+              <button class="region-pill" data-region="Americas">Americas</button>
+              <button class="region-pill" data-region="Middle East">Middle East</button>
+            </div>
+
+            <!-- Multi-Select Dropdowns Row -->
+            <div class="filter-dropdowns-row">
+              <div class="filter-selects-group">
+                <div class="filter-select-wrapper">
+                  <span>Budget:</span>
+                  <select id="filter-budget-select">
+                    <option value="All">Any Budget</option>
+                    <option value="$$">Budget ($$)</option>
+                    <option value="$$$">Moderate ($$$)</option>
+                    <option value="$$$$">Luxury ($$$$)</option>
+                  </select>
+                </div>
+
+                <div class="filter-select-wrapper">
+                  <span>Theme:</span>
+                  <select id="filter-tag-select">
+                    <option value="All">All Themes</option>
+                    <option value="Beaches">Beaches & Coastal</option>
+                    <option value="Culture">Art & Culture</option>
+                    <option value="Mountains">Mountains & Alpine</option>
+                    <option value="Metropolis">Metropolis / Skyline</option>
+                    <option value="Romantic">Romantic Getaways</option>
+                    <option value="Foodie">Culinary Delights</option>
+                  </select>
+                </div>
+
+                <div class="filter-select-wrapper">
+                  <span>Sort By:</span>
+                  <select id="filter-sort-select">
+                    <option value="popular">Most Popular</option>
+                    <option value="rating">Highest Rated</option>
+                    <option value="name">Destination (A - Z)</option>
+                    <option value="budget-low">Budget (Low to High)</option>
+                    <option value="budget-high">Budget (High to Low)</option>
+                  </select>
+                </div>
+              </div>
+
+              <button class="btn btn-outline btn-sm" id="btn-reset-filters">
+                Reset Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Explore Grid Section -->
+      <div class="container">
+        <div class="explore-results-header">
+          <span class="results-count-badge" id="explore-results-count">Showing destinations</span>
+        </div>
+
+        <div class="destinations-grid" id="explore-destinations-grid">
+          <!-- Dynamically populated from data.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: INDIA DEDICATED TRAVEL PAGE ==================== -->
+    <section class="view-section" id="view-india">
+      
+      <!-- India Header & Hero Banner -->
+      <div class="india-page-header">
+        <div class="container">
+          <!-- Breadcrumb navigation -->
+          <nav class="india-breadcrumb" aria-label="Breadcrumb">
+            <a href="#home">Home</a>
+            <span class="breadcrumb-separator">›</span>
+            <a href="#explore">Destinations</a>
+            <span class="breadcrumb-separator">›</span>
+            <span class="breadcrumb-current">India</span>
+          </nav>
+
+          <div class="india-hero-card">
+            <div class="india-hero-bg-overlay"></div>
+            <div class="india-hero-content">
+              <div class="india-hero-badges">
+                <span class="badge badge-india-tri">Major Destination</span>
+                <span class="badge badge-glass">64 Curated Destinations</span>
+                <button class="badge badge-glass badge-india-weather" id="india-hero-weather-btn" title="Check live weather in New Delhi">
+                  ☀️ Live Weather Updates
+                </button>
+              </div>
+
+              <h1 class="india-hero-title">
+                Explore <span class="india-gradient-text">India</span>
+              </h1>
+              
+              <p class="india-hero-desc">
+                From ancient royal fortresses and serene Himalayan valleys to sun-kissed beaches and sacred river ghats. Discover all 28 states, 8 union territories, vibrant metropolitan cities, and iconic world wonders.
+              </p>
+
+              <!-- Quick category stats pills -->
+              <div class="india-stats-bar">
+                <button class="india-stat-pill active" data-category="all">
+                  <span class="stat-number">64</span>
+                  <span class="stat-label">All Places</span>
+                </button>
+                <button class="india-stat-pill" data-category="states_uts">
+                  <span class="stat-number">36</span>
+                  <span class="stat-label">States & UTs</span>
+                </button>
+                <button class="india-stat-pill" data-category="city">
+                  <span class="stat-number">16</span>
+                  <span class="stat-label">Popular Cities</span>
+                </button>
+                <button class="india-stat-pill" data-category="tourist_place">
+                  <span class="stat-number">12</span>
+                  <span class="stat-label">Tourist Landmarks</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Controls & Search Panel -->
+          <div class="india-controls-panel">
+            <!-- Search Bar -->
+            <div class="india-search-bar">
+              <span class="search-input-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              </span>
+              <input 
+                type="text" 
+                id="india-search-input" 
+                placeholder="Search Indian states, cities, monuments, or attractions (e.g. 'Taj Mahal', 'Bengaluru', 'Goa', 'Kerala', 'Ladakh')..." 
+                autocomplete="off"
+              />
+              <button class="btn-clear-search" id="india-btn-clear-search" title="Clear search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <!-- Category Switcher Tabs -->
+            <div class="india-category-tabs">
+              <button class="india-tab-btn active" data-category="all">
+                <span class="tab-icon">✨</span>
+                <span>All Destinations</span>
+                <span class="tab-count-badge" id="tab-count-all">64</span>
+              </button>
+              <button class="india-tab-btn" data-category="states_uts">
+                <span class="tab-icon">🗺️</span>
+                <span>States & Union Territories</span>
+                <span class="tab-count-badge" id="tab-count-states">36</span>
+              </button>
+              <button class="india-tab-btn" data-category="city">
+                <span class="tab-icon">🏙️</span>
+                <span>Popular Cities</span>
+                <span class="tab-count-badge" id="tab-count-cities">16</span>
+              </button>
+              <button class="india-tab-btn" data-category="tourist_place">
+                <span class="tab-icon">🏛️</span>
+                <span>Popular Tourist Places</span>
+                <span class="tab-count-badge" id="tab-count-places">12</span>
+              </button>
+            </div>
+
+            <!-- Sub-filter row & Zone selector -->
+            <div class="india-subfilters-row">
+              <!-- States & UTs sub-filter (State vs UT) -->
+              <div class="india-sub-pills" id="india-states-uts-subpills">
+                <span class="subfilter-label">Category Filter:</span>
+                <button class="india-sub-pill active" data-sub="all">All (36)</button>
+                <button class="india-sub-pill" data-sub="state">28 States</button>
+                <button class="india-sub-pill" data-sub="ut">8 Union Territories</button>
+              </div>
+
+              <!-- Zone Dropdown Filter -->
+              <div class="india-zone-filter-wrapper">
+                <span>Region / Zone:</span>
+                <select id="india-zone-select" class="form-control-sm">
+                  <option value="all">All Zones (Nationwide)</option>
+                  <option value="North">North India</option>
+                  <option value="South">South India</option>
+                  <option value="West">West India</option>
+                  <option value="East">East India</option>
+                  <option value="Central">Central India</option>
+                  <option value="North-East">North-East India</option>
+                </select>
+              </div>
+
+              <button class="btn btn-outline btn-sm" id="india-btn-reset-filters">
+                Reset Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- India Catalog Grid -->
+      <div class="container" style="padding-bottom: 5rem;">
+        <div class="explore-results-header">
+          <span class="results-count-badge" id="india-results-count">Showing 64 Indian destinations</span>
+          <div class="india-legend-badges">
+            <span class="legend-chip legend-state">● State</span>
+            <span class="legend-chip legend-ut">● Union Territory</span>
+            <span class="legend-chip legend-city">● Popular City</span>
+            <span class="legend-chip legend-place">● Tourist Landmark</span>
+          </div>
+        </div>
+
+        <div class="destinations-grid" id="india-destinations-grid">
+          <!-- Dynamically populated from india-data.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: DEDICATED DESTINATION DETAILS PAGE ==================== -->
+    <section class="view-section" id="view-destination">
+      <div id="destination-page-content">
+        <!-- Dynamically rendered by App.renderDestinationPage(destId) -->
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: TRIP PLANNER ==================== -->
+    <section class="view-section" id="view-planner">
+      <div class="container planner-page-container">
+        <div id="planner-content-area">
+          <!-- Dynamically rendered by planner.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: FAVOURITES ==================== -->
+    <section class="view-section" id="view-favourites">
+      <div class="container" style="padding: 3rem 1.5rem 5rem;">
+        <div class="section-header">
+          <span class="section-tag">Saved Bucket List</span>
+          <h1 class="section-title">Your Favourites</h1>
+          <p class="section-desc" id="favourites-count-text">Saved travel destinations</p>
+        </div>
+
+        <div class="destinations-grid" id="favourites-grid">
+          <!-- Dynamically populated with favorited cards -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: ABOUT ==================== -->
+    <section class="view-section" id="view-about">
+      <div class="container">
+        <div class="about-hero-block">
+          <span class="section-tag">Our Vision</span>
+          <h1>Empowering Meaningful Travel Worldwide</h1>
+          <p class="text-lead text-muted mt-3">
+            Wayvora was built on a simple conviction: discovering new cultures, tasting local culinary wonders, and planning unforgettable adventures should feel inspiring and effortless.
+          </p>
+        </div>
+
+        <div class="about-stats-grid">
+          <div class="about-stat-box">
+            <div class="about-stat-num">13</div>
+            <div class="about-stat-label">Curated Destinations</div>
+          </div>
+          <div class="about-stat-box">
+            <div class="about-stat-num">
+              <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+              </svg>
+            </div>
+            <div class="about-stat-label">Smart Trip Planning</div>
+          </div>
+          <div class="about-stat-box">
+            <div class="about-stat-num">
+              <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+              </svg>
+            </div>
+            <div class="about-stat-label">Discover Amazing Places</div>
+          </div>
+          <div class="about-stat-box">
+            <div class="about-stat-num">100%</div>
+            <div class="about-stat-label">Free & Independent</div>
+          </div>
+        </div>
+
+        <div class="section-header text-center mt-4">
+          <span class="section-tag">Our Philosophy</span>
+          <h2>Values That Guide Us</h2>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-box">
+            <h3>Authentic Discovery</h3>
+            <p>We believe in going beyond typical tourist traps to highlight authentic neighborhoods, local flavors, and cultural respect.</p>
+          </div>
+          <div class="feature-box">
+            <h3>Effortless Organization</h3>
+            <p>Travel planning should feel like the exciting beginning of your journey, not an overwhelming chore. Our intuitive tools keep everything organized.</p>
+          </div>
+          <div class="feature-box">
+            <h3>Sustainable Tourism</h3>
+            <p>We encourage mindful travel that supports local artisans, protects ecosystems, and preserves cultural heritage for generations to come.</p>
+          </div>
+        </div>
+
+        <!-- FAQ Section -->
+        <div class="section-header text-center" style="margin-top: 5rem;">
+          <span class="section-tag">Got Questions?</span>
+          <h2>Frequently Asked Questions</h2>
+        </div>
+
+        <div class="faq-list">
+          <div class="faq-item">
+            <h4>How do I plan a trip on Wayvora?</h4>
+            <p>You can create a new trip by clicking "Plan a Trip" in the navigation bar or selecting "Add to Trip" on any destination card. Enter your travel dates and start arranging attractions day by day!</p>
+          </div>
+          <div class="faq-item">
+            <h4>Are my saved favourites and itineraries kept when I refresh?</h4>
+            <p>Yes! Wayvora automatically saves your favourites and planned itineraries to your browser's local storage, ensuring your plans stay right where you left them.</p>
+          </div>
+          <div class="faq-item">
+            <h4>Can I print or export my itinerary?</h4>
+            <p>Absolutely. Inside the Trip Planner, simply click the "Print / Export" button to generate a clean, distraction-free printable travel summary.</p>
+          </div>
+          <div class="faq-item">
+            <h4>How are the daily budgets calculated?</h4>
+            <p>Our budget breakdowns reflect average mid-range travel estimates including accommodations, meals, local transit, and popular attraction admissions.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Global Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-brand">
+            <div class="brand-icon" style="width: 32px; height: 32px;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+              </svg>
+            </div>
+            <span>Wayvora</span>
+          </div>
+          <p class="footer-desc">
+            Your modern companion for global exploration. Discover stunning destinations, curate day-by-day itineraries, and travel with peace of mind.
+          </p>
+        </div>
+
+        <div>
+          <h4 class="footer-heading">Destinations</h4>
+          <ul class="footer-links">
+            <li><a href="#explore">Europe Getaways</a></li>
+            <li><a href="#explore">Tropical Asia</a></li>
+            <li><a href="#explore">Americas & Cities</a></li>
+            <li><a href="#explore">Middle East Wonders</a></li>
+            <li><a href="#explore">Island Retreats</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer-heading">Features</h4>
+          <ul class="footer-links">
+            <li><a href="#planner">Day-by-Day Planner</a></li>
+            <li><a href="#favourites">Saved Favourites</a></li>
+            <li><a href="#explore">Budget Insights</a></li>
+            <li><a href="#home">Seasonal Timing</a></li>
+            <li><a href="#about">Travel Tips</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer-heading">Company</h4>
+          <ul class="footer-links">
+            <li><a href="#about">About Wayvora</a></li>
+            <li><a href="#about">Our Mission</a></li>
+            <li><a href="#about">Travel Philosophy</a></li>
+            <li><a href="#about">Privacy & Terms</a></li>
+            <li><a href="#about">Contact Support</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <p>&copy; 2026 Wayvora Inc. All rights reserved. Designed for world explorers.</p>
+        <div class="footer-social-links">
+          <a href="#home" title="Twitter / X">Twitter</a>
+          <a href="#home" title="Instagram">Instagram</a>
+          <a href="#home" title="YouTube">YouTube</a>
+          <a href="#home" title="Pinterest">Pinterest</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <!-- Google Firebase Compat Web SDK (v10.12.2) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics-compat.js"></script>
+
+  <!-- Application Modules -->
+  <script src="js/firebase-config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/currency.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/india-data.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/weather.js"></script>
+  <script src="js/chatbot.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/planner.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
