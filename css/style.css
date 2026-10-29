@@ -358,6 +358,13 @@ a:hover {
   transition: all var(--transition-normal);
 }
 
+.navbar.menu-open,
+body.mobile-menu-open .navbar {
+  z-index: 9999;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .navbar .container {
   display: flex;
   align-items: center;

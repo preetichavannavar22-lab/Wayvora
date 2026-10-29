@@ -96,8 +96,11 @@ const App = {
     if (menuBtn && navMenu) {
       menuBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        navMenu.classList.toggle("active");
-        if (backdrop) backdrop.classList.toggle("active");
+        if (navMenu.classList.contains("active")) {
+          this.closeMobileMenu();
+        } else {
+          this.openMobileMenu();
+        }
       });
     }
 
@@ -109,12 +112,18 @@ const App = {
       backdrop.addEventListener("click", () => this.closeMobileMenu());
     }
 
+    // Close mobile drawer on Escape key
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && navMenu && navMenu.classList.contains("active")) {
+        this.closeMobileMenu();
+      }
+    });
+
     // 5. Mobile header user shortcut button
     document.getElementById("mobile-header-user-btn")?.addEventListener("click", () => {
       if (window.AuthService) {
         if (AuthService.isAuthenticated()) {
-          navMenu?.classList.add("active");
-          backdrop?.classList.add("active");
+          this.openMobileMenu();
         } else {
           AuthService.openAuthModal();
         }
@@ -257,11 +266,26 @@ const App = {
     }
   },
 
+  openMobileMenu() {
+    const navMenu = document.getElementById("navbar-menu");
+    const backdrop = document.getElementById("nav-backdrop");
+    const navbar = document.getElementById("main-navbar");
+    if (navMenu) navMenu.classList.add("active");
+    if (backdrop) backdrop.classList.add("active");
+    if (navbar) navbar.classList.add("menu-open");
+    document.body.classList.add("mobile-menu-open");
+    document.body.style.overflow = "hidden";
+  },
+
   closeMobileMenu() {
     const navMenu = document.getElementById("navbar-menu");
     const backdrop = document.getElementById("nav-backdrop");
+    const navbar = document.getElementById("main-navbar");
     if (navMenu) navMenu.classList.remove("active");
     if (backdrop) backdrop.classList.remove("active");
+    if (navbar) navbar.classList.remove("menu-open");
+    document.body.classList.remove("mobile-menu-open");
+    document.body.style.overflow = "";
   },
 
   navigateTo(viewName) {
