@@ -418,9 +418,12 @@ const PlannerController = {
             </div>
           </div>
 
-          <div class="modal-form-actions mt-4" style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+          <div class="modal-form-actions trip-modal-actions mt-4" style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
             <button type="submit" class="btn btn-primary btn-lg" id="btn-page-generate-trip">
               🚀 Plan My Trip
+            </button>
+            <button type="button" class="btn btn-ai-assist btn-lg" id="btn-page-ask-ai">
+              ✨ Ask AI Assistant
             </button>
             <a href="#explore" class="btn btn-ghost btn-lg">
               Explore Destinations
@@ -457,6 +460,17 @@ const PlannerController = {
 
     destSelect?.addEventListener("change", updatePageCurrency);
     updatePageCurrency();
+
+    // Ask AI button listener
+    document.getElementById("btn-page-ask-ai")?.addEventListener("click", () => {
+      const dSelect = document.getElementById("page-plan-dest");
+      const d = dSelect && window.DataService ? DataService.getDestinationById(dSelect.value) : null;
+      const destName = d ? d.name : "my chosen destination";
+      if (window.ChatbotService) {
+        ChatbotService.openChat();
+        ChatbotService.sendMessage(`Can you help me plan a customized trip to ${destName}? What are the highlights, recommended length of stay, and daily expenses?`);
+      }
+    });
 
     // Form submit: Generate trip (Guarded by Firebase authentication only when generating)
     const form = document.getElementById("page-planner-form");

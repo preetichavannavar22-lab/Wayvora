@@ -1103,7 +1103,7 @@ const UI = {
     const initialBudget = initialDaily * 4 * 2;
 
     modal.innerHTML = `
-      <div class="modal-dialog modal-md modal-scrollable trip-create-dialog animate-scale-up" role="dialog" aria-modal="true">
+      <div class="modal-dialog modal-md modal-scrollable trip-create-dialog trip-modal-content animate-scale-up" role="dialog" aria-modal="true">
         <button class="modal-close-btn" id="trip-create-close-btn" aria-label="Close modal">
           ${UI.icons.x}
         </button>
@@ -1170,18 +1170,19 @@ const UI = {
           <div class="form-row-2">
             <div class="form-group">
               <label for="trip-travelers">Travelers</label>
-              <input type="number" id="trip-travelers" class="form-control" min="1" max="20" value="2" />
+              <input type="number" id="trip-travelers" class="form-control" min="1" max="20" value="2" inputmode="numeric" />
             </div>
             <div class="form-group">
               <label for="trip-budget">Target Budget (<span id="trip-budget-currency-label">${currentDestCurrency}</span>)</label>
-              <input type="number" id="trip-budget" class="form-control" min="10" step="50" value="${initialBudget}" />
+              <input type="number" id="trip-budget" class="form-control" min="10" step="50" value="${initialBudget}" inputmode="numeric" />
               <div id="trip-affordability-hint" class="text-xs text-muted mt-1" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;min-height:20px;"></div>
             </div>
           </div>
 
-          <div class="modal-form-actions">
-            <button type="button" class="btn btn-outline" id="btn-cancel-trip">Cancel</button>
+          <div class="modal-form-actions trip-modal-actions">
             <button type="submit" class="btn btn-primary btn-lg" id="btn-submit-create-trip">🚀 Plan My Trip</button>
+            <button type="button" class="btn btn-ai-assist btn-lg" id="btn-trip-ask-ai">✨ Ask AI Assistant</button>
+            <button type="button" class="btn btn-outline" id="btn-cancel-trip">Cancel</button>
           </div>
         </form>
       </div>
@@ -1189,6 +1190,7 @@ const UI = {
 
     modal.classList.add("active");
     document.body.style.overflow = "hidden";
+    document.body.classList.add("modal-open");
     const tripDialog = modal.querySelector(".modal-dialog");
     if (tripDialog) tripDialog.scrollTop = 0;
     modal.scrollTop = 0;
@@ -1268,10 +1270,29 @@ const UI = {
     const closeModal = () => {
       modal.classList.remove("active");
       document.body.style.overflow = "";
+      document.body.classList.remove("modal-open");
+      document.removeEventListener("keydown", handleKeydown);
     };
 
-    modal.querySelector("#trip-create-close-btn").addEventListener("click", closeModal);
-    modal.querySelector("#btn-cancel-trip").addEventListener("click", closeModal);
+    const handleKeydown = (e) => {
+      if (e.key === "Escape" && modal.classList.contains("active")) {
+        closeModal();
+      }
+    };
+    document.addEventListener("keydown", handleKeydown);
+
+    modal.querySelector("#trip-create-close-btn")?.addEventListener("click", closeModal);
+    modal.querySelector("#btn-cancel-trip")?.addEventListener("click", closeModal);
+    modal.querySelector("#btn-trip-ask-ai")?.addEventListener("click", () => {
+      const destSelect = document.getElementById("trip-dest-select");
+      const selectedDest = destSelect && window.DataService ? DataService.getDestinationById(destSelect.value) : null;
+      const destName = selectedDest ? selectedDest.name : (dest ? dest.name : "my selected destination");
+      closeModal();
+      if (window.ChatbotService) {
+        ChatbotService.openChat();
+        ChatbotService.sendMessage(`Can you help me plan a customized trip to ${destName}? What are the highlights, recommended length of stay, and daily expenses?`);
+      }
+    });
     modal.addEventListener("click", (e) => {
       if (e.target === modal) closeModal();
     });

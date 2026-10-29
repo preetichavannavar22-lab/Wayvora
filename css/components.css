@@ -806,12 +806,32 @@
   padding: 1.75rem 2rem;
 }
 
-.modal-form-actions {
+.modal-form-actions,
+.trip-modal-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
   margin-top: 1.5rem;
+}
+
+.btn-ai-assist {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(6, 182, 212, 0.12) 100%);
+  color: var(--primary);
+  border: 1px solid rgba(2, 132, 199, 0.35);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all var(--transition-fast);
+}
+
+.btn-ai-assist:hover {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.16) 0%, rgba(6, 182, 212, 0.22) 100%);
+  border-color: var(--primary);
+  color: #0369a1;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.2);
 }
 
 /* ==================== TRIP PLANNER UI ==================== */
