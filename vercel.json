@@ -9,6 +9,10 @@
       "destination": "/api/weather.js"
     },
     {
+      "source": "/api/currency",
+      "destination": "/api/currency.js"
+    },
+    {
       "source": "/((?!api/|css/|js/|favicon\\.ico).*)",
       "destination": "/index.html"
     }

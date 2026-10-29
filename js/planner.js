@@ -144,7 +144,10 @@ const PlannerController = {
                 </span>
                 <strong>Trip Affordability Evaluation (${tripCurrency})</strong>
               </div>
-              <span class="text-sm text-muted">Est. baseline for ${activeTrip.travelers || 1} travelers: ~${CurrencyService.format(affordability.estimatedTotalBaseline, tripCurrency)} (${activeTrip.days.length} days)</span>
+              <div class="budget-health-actions" style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="text-sm text-muted">Est. baseline for ${activeTrip.travelers || 1} travelers: ~${CurrencyService.format(affordability.estimatedTotalBaseline, tripCurrency)} (${activeTrip.days.length} days)</span>
+                <button type="button" class="btn btn-outline btn-xs" id="planner-converter-trigger-btn" title="Convert budget with live exchange rates" style="padding: 0.2rem 0.55rem; font-size: 0.75rem;">💱 Currency Converter</button>
+              </div>
             </div>
             <p class="budget-health-advice">${affordability.advice}</p>
             <div class="budget-metrics-grid">
@@ -573,6 +576,13 @@ const PlannerController = {
       if (confirm(`Are you sure you want to delete the itinerary "${activeTrip.title}"?`)) {
         AppState.deleteTrip(activeTrip.id);
         UI.showToast("Trip itinerary deleted", "info");
+      }
+    });
+
+    // Trip Affordability Live Currency Converter trigger
+    document.getElementById("planner-converter-trigger-btn")?.addEventListener("click", () => {
+      if (window.CurrencyConverterUI) {
+        window.CurrencyConverterUI.openModal(activeTrip.currency || "USD", "INR", activeTrip.targetBudget || 1000);
       }
     });
 

@@ -13,7 +13,8 @@ const UI = {
     heartFilled: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`,
     search: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`,
     star: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`,
-    dollar: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>`,
+    wallet: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`,
+    dollar: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`,
     clock: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
     check: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
     plus: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
@@ -117,8 +118,8 @@ const UI = {
             <span>${destination.bestTimeToVisit}</span>
           </div>
           <div class="meta-item meta-budget" title="Estimated daily cost">
-            ${UI.icons.dollar}
-            <span>~ ${window.CurrencyService ? CurrencyService.getDisplayBudget(destination).formatted : `\$${destination.dailyBudgetEstimated}`} / day</span>
+            ${UI.icons.wallet}
+            <span>~ ${window.CurrencyService ? CurrencyService.getDisplayBudget(destination).formatted : `${destination.dailyBudgetEstimated}`} / day</span>
           </div>
         </div>
 
@@ -272,7 +273,7 @@ const UI = {
             <span>${item.bestTimeToVisit}</span>
           </div>
           <div class="meta-item meta-budget" title="Estimated daily cost">
-            ${UI.icons.dollar}
+            ${UI.icons.wallet}
             <span>~ ${window.CurrencyService ? CurrencyService.getDisplayBudget(item).formatted : '₹4,000'} / day</span>
           </div>
         </div>
@@ -365,6 +366,8 @@ const UI = {
     const dest = DataService.getDestinationById(destinationId);
     if (!dest) return;
 
+    this.activeDestModalId = dest.id;
+
     let modal = document.getElementById("dest-details-modal");
     if (!modal) {
       modal = document.createElement("div");
@@ -374,8 +377,9 @@ const UI = {
     }
 
     const isFav = AppState.isFavourite(dest.id);
-    const displayBudget = window.CurrencyService ? CurrencyService.getDisplayBudget(dest) : { formatted: `\$${dest.dailyBudgetEstimated}`, isConverted: false, currency: "USD" };
+    const displayBudget = window.CurrencyService ? CurrencyService.getDisplayBudget(dest) : { formatted: `${dest.dailyBudgetEstimated}`, isConverted: false, currency: "USD" };
     const breakdown = window.CurrencyService ? CurrencyService.getDisplayBreakdown(dest) : dest.budgetBreakdown;
+    const budgetTier = dest.budgetLevel === "$$$$" ? "Luxury" : (dest.budgetLevel === "$$$" ? "Moderate" : (dest.budgetLevel === "$$" ? "Mid-Range" : "Budget-Friendly"));
 
     modal.innerHTML = `
       <div class="modal-dialog modal-lg animate-scale-up" role="dialog" aria-modal="true">
@@ -394,7 +398,7 @@ const UI = {
             <div class="modal-hero-badges">
               <span class="badge badge-primary">${dest.region}</span>
               <span class="badge badge-glass">${dest.seasonTag}</span>
-              <span class="badge badge-glass">${dest.budgetLevel} Budget</span>
+              <span class="badge badge-glass">${budgetTier}</span>
             </div>
             <h1 class="modal-hero-title">${dest.name}, <span class="country-sub">${dest.country}</span></h1>
             <p class="modal-hero-tagline">${dest.tagline}</p>
@@ -494,8 +498,8 @@ const UI = {
           <div class="modal-section grid-2-col">
             <div class="budget-card">
               <div class="section-header-flex" style="margin-bottom: 0.5rem;">
-                <h4 class="card-heading" style="margin-bottom: 0;">${UI.icons.dollar} Daily Budget Breakdown</h4>
-                ${displayBudget.isConverted ? `<span class="badge badge-outline" style="font-size:0.72rem;">Converted to ${displayBudget.currency}</span>` : `<span class="badge badge-glass" style="font-size:0.72rem;">Native ${displayBudget.currency}</span>`}
+                <h4 class="card-heading" style="margin-bottom: 0;">${UI.icons.wallet} Daily Budget Breakdown</h4>
+                <span class="badge badge-outline" style="font-size:0.72rem;">${displayBudget.currency}</span>
               </div>
               <p class="text-sm text-muted">Estimated per person per day (${displayBudget.currency})</p>
               <div class="budget-rows">
@@ -550,6 +554,7 @@ const UI = {
     // Close handlers
     const closeBtn = modal.querySelector("#modal-close-btn");
     const closeModal = () => {
+      this.activeDestModalId = null;
       modal.classList.remove("active");
       document.body.style.overflow = "";
     };
@@ -638,6 +643,7 @@ const UI = {
   // Open Dedicated India Destination Details Modal
   async openIndiaDetailModal(dest) {
     if (!dest) return;
+    this.activeIndiaModalId = dest.id;
     let modal = document.getElementById("india-detail-modal");
     if (!modal) {
       modal = document.createElement("div");
@@ -776,8 +782,8 @@ const UI = {
           <div class="modal-section">
             <div class="budget-card">
               <div class="section-header-flex" style="margin-bottom: 0.5rem;">
-                <h4 class="card-heading" style="margin-bottom: 0;">${UI.icons.dollar} Daily Budget Breakdown</h4>
-                ${displayBudget.isConverted ? `<span class="badge badge-outline" style="font-size:0.72rem;">Converted to ${displayBudget.currency}</span>` : `<span class="badge badge-glass" style="font-size:0.72rem;">Native ${displayBudget.currency}</span>`}
+                <h4 class="card-heading" style="margin-bottom: 0;">${UI.icons.wallet} Daily Budget Breakdown</h4>
+                <span class="badge badge-outline" style="font-size:0.72rem;">${displayBudget.currency}</span>
               </div>
               <p class="text-sm text-muted">Estimated per person per day (${displayBudget.currency})</p>
               <div class="budget-rows">
@@ -868,6 +874,7 @@ const UI = {
 
     // Close handlers
     const closeModal = () => {
+      this.activeIndiaModalId = null;
       modal.classList.remove("active");
       document.body.style.overflow = "";
       window.removeEventListener("keydown", escHandler);

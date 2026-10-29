@@ -87,10 +87,11 @@ const App = {
       this.navigateTo("planner");
     });
 
-    // 4. Mobile menu toggle & backdrop
+    // 4. Mobile menu toggle, close button & backdrop
     const menuBtn = document.getElementById("mobile-menu-toggle");
     const navMenu = document.getElementById("navbar-menu");
     const backdrop = document.getElementById("nav-backdrop");
+    const drawerCloseBtn = document.getElementById("mobile-drawer-close");
 
     if (menuBtn && navMenu) {
       menuBtn.addEventListener("click", (e) => {
@@ -98,6 +99,10 @@ const App = {
         navMenu.classList.toggle("active");
         if (backdrop) backdrop.classList.toggle("active");
       });
+    }
+
+    if (drawerCloseBtn) {
+      drawerCloseBtn.addEventListener("click", () => this.closeMobileMenu());
     }
 
     if (backdrop) {
@@ -130,8 +135,66 @@ const App = {
       }
     });
 
-    // 7. Footer navigation links
-    document.querySelectorAll(".footer-links a[href^='#']").forEach(link => {
+    // 7. About page pill tabs
+    document.querySelectorAll(".about-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        const tab = pill.getAttribute("data-tab");
+        if (tab) this.switchAboutTab(tab);
+      });
+    });
+
+    // 8. Footer About and Legal links (direct to specific tab)
+    document.querySelectorAll(".footer-about-link").forEach(link => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const tab = link.getAttribute("data-about-tab") || "overview";
+        this.navigateTo("about");
+        this.switchAboutTab(tab);
+      });
+    });
+
+    // 9. Footer Region filters
+    document.querySelectorAll(".footer-link-region").forEach(link => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const region = link.getAttribute("data-region");
+        this.navigateTo("explore");
+        if (region) {
+          const regionSelect = document.getElementById("filter-region");
+          if (regionSelect) {
+            regionSelect.value = region;
+            regionSelect.dispatchEvent(new Event("change"));
+          }
+        }
+      });
+    });
+
+    // 10. Footer Live Weather Button
+    document.getElementById("footer-weather-btn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (window.WeatherUI && typeof window.WeatherUI.openWeatherModal === "function") {
+        window.WeatherUI.openWeatherModal(window.WeatherUI.activeDestId || "paris");
+      }
+    });
+
+    // 10b. Currency Converter Triggers (desktop header, mobile drawer, footer)
+    const openConverterModal = () => {
+      if (window.CurrencyConverterUI && typeof window.CurrencyConverterUI.openModal === "function") {
+        window.CurrencyConverterUI.openModal();
+      }
+    };
+    document.getElementById("nav-converter-btn")?.addEventListener("click", openConverterModal);
+    document.getElementById("mobile-converter-btn")?.addEventListener("click", () => {
+      this.closeMobileMenu();
+      openConverterModal();
+    });
+    document.getElementById("footer-converter-btn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      openConverterModal();
+    });
+
+    // 11. Other Footer navigation links
+    document.querySelectorAll(".footer-links a[href^='#']:not(.footer-about-link):not(.footer-link-region)").forEach(link => {
       link.addEventListener("click", (e) => {
         const href = link.getAttribute("href");
         if (href && href.startsWith("#")) {
@@ -140,6 +203,58 @@ const App = {
         }
       });
     });
+
+    // 12. Contact Support Form Submission
+    const contactForm = document.getElementById("form-contact-support");
+    if (contactForm) {
+      contactForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const name = document.getElementById("contact-name")?.value.trim();
+        const email = document.getElementById("contact-email")?.value.trim();
+        const message = document.getElementById("contact-message")?.value.trim();
+        const banner = document.getElementById("contact-success-banner");
+
+        if (!name || !email || !message) {
+          if (window.UI && typeof window.UI.showToast === "function") {
+            window.UI.showToast("Please fill out your name, email, and message.", "warning");
+          }
+          return;
+        }
+
+        if (banner) {
+          banner.innerHTML = `<strong>✓ Thank you, ${name}!</strong> Your message has been received. Our support team will follow up at <em>${email}</em> within 24 hours.`;
+          banner.style.display = "block";
+          banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
+        contactForm.reset();
+
+        if (window.UI && typeof window.UI.showToast === "function") {
+          window.UI.showToast("Message sent successfully!", "success");
+        }
+      });
+    }
+  },
+
+  switchAboutTab(tabName) {
+    const clean = (tabName || "mission").toLowerCase().replace("about-", "").trim();
+    const validTabs = ["mission", "philosophy", "tips", "privacy", "contact", "developer"];
+    const targetTab = validTabs.includes(clean) ? clean : "mission";
+
+    document.querySelectorAll(".about-pill").forEach(pill => {
+      const isCurrent = pill.getAttribute("data-tab") === targetTab;
+      pill.classList.toggle("active", isCurrent);
+      pill.setAttribute("aria-selected", isCurrent ? "true" : "false");
+    });
+
+    document.querySelectorAll(".about-panel").forEach(panel => {
+      panel.classList.remove("active");
+    });
+
+    const activePanel = document.getElementById(`about-panel-${targetTab}`);
+    if (activePanel) {
+      activePanel.classList.add("active");
+    }
   },
 
   closeMobileMenu() {
@@ -161,10 +276,22 @@ const App = {
   },
 
   handleRoute(overrideHash) {
+    this.clearHomeSearch();
     let hash = (overrideHash !== undefined && overrideHash !== null) ? overrideHash : (window.location.hash.replace("#", "") || "home");
     let scrollToTarget = null;
 
-    if (hash === "destinations") {
+    let targetAboutTab = null;
+    if (hash.startsWith("about-")) {
+      targetAboutTab = hash.replace("about-", "");
+      hash = "about";
+    } else if (hash === "weather") {
+      hash = "home";
+      setTimeout(() => {
+        if (window.WeatherUI && typeof window.WeatherUI.openWeatherModal === "function") {
+          window.WeatherUI.openWeatherModal(window.WeatherUI.activeDestId || "paris");
+        }
+      }, 50);
+    } else if (hash === "destinations") {
       hash = "explore";
     } else if (hash === "section-popular") {
       hash = "home";
@@ -256,6 +383,8 @@ const App = {
       this.renderIndiaView();
     } else if (view === "destination") {
       this.renderDestinationPage(this.activeDestId || "paris");
+    } else if (view === "about") {
+      this.switchAboutTab(targetAboutTab || "mission");
     }
 
     // Scroll handling
@@ -299,26 +428,49 @@ const App = {
 
     if (selects.length === 0 || !window.CurrencyService) return;
 
-    const currentPref = CurrencyService.getPreferredCurrency() || "AUTO";
+    const currentPref = CurrencyService.getPreferredCurrency() || "USD";
     selects.forEach(s => s.value = currentPref);
+
+    const rerenderAllPrices = () => {
+      this.renderHomeSections();
+      this.renderExploreView();
+      if (typeof this.renderIndiaView === "function") this.renderIndiaView();
+      if (typeof this.renderFavouritesView === "function") this.renderFavouritesView();
+      if (this.activeDestId) this.renderDestinationPage(this.activeDestId);
+      if (window.PlannerController && typeof window.PlannerController.render === "function") {
+        PlannerController.render();
+      }
+
+      // If a destination modal is currently open, re-render it in place with updated currency
+      if (window.UI) {
+        if (UI.activeDestModalId) {
+          const m = document.getElementById("dest-details-modal");
+          if (m && m.classList.contains("active")) {
+            const dest = DataService.getDestinationById(UI.activeDestModalId);
+            if (dest) UI.openDestinationModal(dest.id);
+          }
+        }
+        if (UI.activeIndiaModalId) {
+          const m = document.getElementById("india-detail-modal");
+          if (m && m.classList.contains("active") && window.IndiaDataService) {
+            const item = IndiaDataService.getById(UI.activeIndiaModalId);
+            if (item) UI.openIndiaDetailModal(item);
+          }
+        }
+      }
+    };
 
     const onCurrencyChange = (newCurrency) => {
       CurrencyService.setPreferredCurrency(newCurrency);
       selects.forEach(s => s.value = newCurrency);
+      const curr = CurrencyService.currencies[newCurrency];
       UI.showToast(
-        newCurrency === "AUTO"
-          ? "Display currency set to Destination Native Currencies"
-          : `Display currency converted to ${newCurrency} (${CurrencyService.currencies[newCurrency]?.symbol || ''})`,
+        `Prices converted to ${newCurrency} (${curr?.symbol || ''})`,
         "info"
       );
 
       // Re-render views
-      this.renderHomeSections();
-      if (this.activeView === "explore") this.renderExploreView();
-      if (this.activeView === "india") this.renderIndiaView();
-      if (this.activeView === "favourites") this.renderFavouritesView();
-      if (this.activeView === "destination" && this.activeDestId) this.renderDestinationPage(this.activeDestId);
-      if (this.activeView === "planner" && window.PlannerController) PlannerController.render();
+      rerenderAllPrices();
     };
 
     selects.forEach(select => {
@@ -330,6 +482,11 @@ const App = {
     window.addEventListener("currency-changed", (e) => {
       const code = e.detail?.currency || CurrencyService.getPreferredCurrency();
       selects.forEach(s => s.value = code);
+      rerenderAllPrices();
+    });
+
+    window.addEventListener("currency-rates-updated", () => {
+      rerenderAllPrices();
     });
   },
 
@@ -391,20 +548,62 @@ const App = {
     }
   },
 
+  /**
+   * Toggle visibility of the "Plan Your Itinerary" area, options,
+   * and planning section on the main page while destination search is active.
+   */
+  setHomeSearchState(isSearching) {
+    const heroPlanArea = document.getElementById("hero-plan-itinerary-area");
+    const sectionWhyUs = document.getElementById("section-why-us");
+    const clearBtn = document.getElementById("hero-clear-search-btn");
+    const heroContent = document.querySelector(".hero-content");
+
+    if (isSearching) {
+      if (heroPlanArea) heroPlanArea.style.display = "none";
+      if (sectionWhyUs) sectionWhyUs.style.display = "none";
+      if (clearBtn) clearBtn.style.display = "flex";
+      if (heroContent) heroContent.classList.add("search-active");
+    } else {
+      if (heroPlanArea) heroPlanArea.style.display = "";
+      if (sectionWhyUs) sectionWhyUs.style.display = "";
+      if (clearBtn) clearBtn.style.display = "none";
+      if (heroContent) heroContent.classList.remove("search-active");
+    }
+  },
+
+  /**
+   * Reset the hero destination search input and suggestions,
+   * restoring the "Plan Your Itinerary" section and related options.
+   */
+  clearHomeSearch() {
+    const heroInput = document.getElementById("hero-search-input");
+    const suggestionsBox = document.getElementById("hero-search-suggestions");
+    if (heroInput) heroInput.value = "";
+    if (suggestionsBox) {
+      suggestionsBox.innerHTML = "";
+      suggestionsBox.style.display = "none";
+    }
+    this.setHomeSearchState(false);
+  },
+
   bindHomeEvents() {
     // Hero Search Bar and Autocomplete Suggestions
     const heroInput = document.getElementById("hero-search-input");
     const heroBtn = document.getElementById("hero-search-btn");
+    const heroClearBtn = document.getElementById("hero-clear-search-btn");
     const suggestionsBox = document.getElementById("hero-search-suggestions");
 
     if (heroInput && suggestionsBox) {
+      // 1. User starts typing a destination -> hide "Plan Your Itinerary" & show search results
       heroInput.addEventListener("input", () => {
         const query = heroInput.value.trim().toLowerCase();
         if (query.length === 0) {
-          suggestionsBox.innerHTML = "";
-          suggestionsBox.style.display = "none";
+          this.clearHomeSearch();
           return;
         }
+
+        // Active searching: Hide the "Plan Your Itinerary" section & options
+        this.setHomeSearchState(true);
 
         let matches = DataService.getAllDestinations().filter(d => 
           d.name.toLowerCase().includes(query) ||
@@ -413,55 +612,116 @@ const App = {
         );
 
         if (window.IndiaDataService) {
-          const inMatches = window.IndiaDataService.search(query).slice(0, 3);
+          const inMatches = window.IndiaDataService.search(query).slice(0, 4);
           matches = [...matches, ...inMatches.filter(im => !matches.some(m => m.id === im.id))];
         }
         matches = matches.slice(0, 6);
 
         if (matches.length === 0) {
-          suggestionsBox.innerHTML = `<div class="suggestion-item text-muted">No matching destinations found</div>`;
+          const safeQuery = UI.escapeHTML ? UI.escapeHTML(heroInput.value.trim()) : heroInput.value.trim();
+          suggestionsBox.innerHTML = `
+            <div class="suggestions-header">
+              <span>Destination Search</span>
+              <button type="button" class="btn-close-suggestions" id="btn-close-suggestions" title="Close Search" aria-label="Close search">✕</button>
+            </div>
+            <div class="suggestion-empty">
+              <div class="empty-icon">🔍</div>
+              <h4>No matching destinations found</h4>
+              <p>We couldn't find any destination matching "<strong>${safeQuery}</strong>". Try searching for Paris, Bali, Tokyo, India, Goa, or Switzerland.</p>
+            </div>
+          `;
           suggestionsBox.style.display = "block";
+          document.getElementById("btn-close-suggestions")?.addEventListener("click", () => {
+            this.clearHomeSearch();
+          });
           return;
         }
 
-        suggestionsBox.innerHTML = matches.map(m => {
-          const isIndia = m.id === "india";
-          return `
-            <div class="suggestion-item" data-id="${m.id}" data-name="${m.name}">
-              <span class="sugg-icon">${UI.icons.mapPin}</span>
-              <div class="sugg-text">
-                <strong>${m.name}</strong>${isIndia ? '' : `, <span class="text-muted">${m.country || 'India'}</span>`}
-              </div>
-              <span class="sugg-badge">${isIndia ? 'Major Destination' : (m.region || m.categoryLabel || 'India')}</span>
-            </div>
-          `;
-        }).join("");
+        suggestionsBox.innerHTML = `
+          <div class="suggestions-header">
+            <span>Matching Destinations (${matches.length})</span>
+            <button type="button" class="btn-close-suggestions" id="btn-close-suggestions" title="Close Search" aria-label="Close search">✕</button>
+          </div>
+          <div class="suggestions-list">
+            ${matches.map(m => {
+              const isIndia = m.id === "india";
+              const imgSrc = m.image || "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=300&q=80";
+              const subText = isIndia ? '64 States, UTs, Cities & Tourist Places' : (m.country || 'India');
+              const badgeText = isIndia ? 'Major Destination' : (m.region || m.categoryLabel || 'Destination');
+              return `
+                <div class="suggestion-item" data-id="${m.id}" data-name="${m.name}" role="button" tabindex="0">
+                  <img src="${imgSrc}" alt="${m.name}" class="sugg-thumb" loading="lazy" />
+                  <div class="sugg-text">
+                    <strong>${m.name}</strong>
+                    <span class="text-muted text-xs">${subText}</span>
+                  </div>
+                  <span class="sugg-badge">${badgeText}</span>
+                  <span class="sugg-action">View Details →</span>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
         suggestionsBox.style.display = "block";
 
-        // Suggestion click
+        // Bind Close button in suggestions header
+        document.getElementById("btn-close-suggestions")?.addEventListener("click", () => {
+          this.clearHomeSearch();
+        });
+
+        // Bind suggestion clicks: select destination & restore normal view
         suggestionsBox.querySelectorAll(".suggestion-item").forEach(item => {
           item.addEventListener("click", () => {
             const destId = item.dataset.id;
+            this.clearHomeSearch();
             if (destId) {
               if (destId === "india") {
-                window.location.hash = "#india";
+                this.navigateTo("india");
               } else if (destId.startsWith("in-")) {
                 const inItem = window.IndiaDataService ? window.IndiaDataService.getById(destId) : null;
                 if (inItem) UI.openIndiaDetailModal(inItem);
               } else {
                 UI.openDestinationModal(destId);
               }
-              suggestionsBox.style.display = "none";
-              heroInput.value = "";
             }
           });
         });
       });
 
-      // Hide suggestions when clicking outside
+      // 2. Clear Search button inside search box
+      if (heroClearBtn) {
+        heroClearBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          this.clearHomeSearch();
+          heroInput.focus();
+        });
+      }
+
+      // 3. Escape key clears search and restores section
+      heroInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.clearHomeSearch();
+        }
+      });
+
+      // 4. Focus back on search: if text exists, restore search state & suggestions
+      heroInput.addEventListener("focus", () => {
+        if (heroInput.value.trim().length > 0) {
+          this.setHomeSearchState(true);
+          suggestionsBox.style.display = "block";
+        }
+      });
+
+      // 5. Hide suggestions when clicking outside
       document.addEventListener("click", (e) => {
-        if (!heroInput.contains(e.target) && !suggestionsBox.contains(e.target)) {
-          suggestionsBox.style.display = "none";
+        if (!heroInput.contains(e.target) && !suggestionsBox.contains(e.target) && !(heroClearBtn && heroClearBtn.contains(e.target))) {
+          if (suggestionsBox.style.display === "block") {
+            suggestionsBox.style.display = "none";
+            if (heroInput.value.trim().length === 0) {
+              this.setHomeSearchState(false);
+            }
+          }
         }
       });
     }
@@ -470,6 +730,7 @@ const App = {
       heroBtn.addEventListener("click", (e) => {
         e.preventDefault();
         const query = heroInput.value.trim();
+        this.clearHomeSearch();
         this.exploreFilters.query = query;
         this.navigateTo("explore");
         const exploreSearchInput = document.getElementById("explore-search-input");
@@ -938,8 +1199,9 @@ const App = {
     if (!container) return;
 
     const isFav = AppState.isFavourite(dest.id);
-    const displayBudget = window.CurrencyService ? CurrencyService.getDisplayBudget(dest) : { formatted: `\$${dest.dailyBudgetEstimated}`, isConverted: false, currency: "USD" };
+    const displayBudget = window.CurrencyService ? CurrencyService.getDisplayBudget(dest) : { formatted: `${dest.dailyBudgetEstimated}`, isConverted: false, currency: "USD" };
     const breakdown = window.CurrencyService ? CurrencyService.getDisplayBreakdown(dest) : dest.budgetBreakdown;
+    const budgetTier = dest.budgetLevel === "$$$$" ? "Luxury" : (dest.budgetLevel === "$$$" ? "Moderate" : (dest.budgetLevel === "$$" ? "Mid-Range" : "Budget-Friendly"));
 
     container.innerHTML = `
       <div class="destination-detail-page animate-fade-in" style="padding: 2.5rem 0 5rem;">
@@ -960,7 +1222,7 @@ const App = {
               <div class="india-hero-badges">
                 <span class="badge badge-primary">${dest.region}</span>
                 <span class="badge badge-glass">${dest.seasonTag}</span>
-                <span class="badge badge-glass">${dest.budgetLevel} Budget</span>
+                <span class="badge badge-glass">${budgetTier}</span>
                 <button class="badge badge-glass badge-dest-weather" id="dest-hero-weather-btn" title="Check live weather forecast">
                   ☀️ Live Weather Updates
                 </button>
@@ -1069,8 +1331,8 @@ const App = {
           <div class="grid-2-col dest-budget-tips-grid mt-4">
             <div class="budget-card dest-page-subcard">
               <div class="section-header-flex" style="margin-bottom: 0.5rem;">
-                <h3 class="card-heading" style="margin-bottom: 0;">${UI.icons.dollar} Estimated Daily Budget</h3>
-                ${displayBudget.isConverted ? `<span class="badge badge-outline" style="font-size:0.75rem;">Converted to ${displayBudget.currency}</span>` : `<span class="badge badge-glass" style="font-size:0.75rem;">Native ${displayBudget.currency}</span>`}
+                <h3 class="card-heading" style="margin-bottom: 0;">${UI.icons.wallet} Estimated Daily Budget</h3>
+                <span class="badge badge-outline" style="font-size:0.75rem;">${displayBudget.currency}</span>
               </div>
               <p class="text-sm text-muted mb-3">Mid-range traveler estimate per person (${displayBudget.currency})</p>
               <div class="budget-rows">

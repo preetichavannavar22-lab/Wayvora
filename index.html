@@ -33,6 +33,24 @@
 
       <!-- Desktop & Mobile Navigation Links -->
       <nav class="navbar-nav" id="navbar-menu">
+        <!-- Mobile Drawer Header with Close Button -->
+        <div class="mobile-drawer-header">
+          <div class="mobile-drawer-brand">
+            <div class="brand-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+              </svg>
+            </div>
+            <span class="brand-name">Wayvora</span>
+          </div>
+          <button type="button" class="mobile-drawer-close-btn" id="mobile-drawer-close" aria-label="Close menu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
         <a href="#home" class="nav-link active">Home</a>
         <a href="#explore" class="nav-link">Explore</a>
         <a href="#planner" class="nav-link">Trip Planner</a>
@@ -53,12 +71,13 @@
             <div class="currency-picker-pill">
               <span class="currency-picker-icon">🌐</span>
               <select id="mobile-currency-select" class="nav-currency-select" aria-label="Choose Preferred Currency Mobile">
-                <option value="LOCAL">Local (Destination Currency)</option>
                 <option value="USD">USD ($ - US Dollar)</option>
+                <option value="INR">INR (₹ - Indian Rupee)</option>
                 <option value="EUR">EUR (€ - Euro)</option>
                 <option value="GBP">GBP (£ - British Pound)</option>
                 <option value="JPY">JPY (¥ - Japanese Yen)</option>
-                <option value="INR">INR (₹ - Indian Rupee)</option>
+                <option value="CNY">CNY (¥ - Chinese Yuan)</option>
+                <option value="SGD">SGD (S$ - Singapore Dollar)</option>
                 <option value="AUD">AUD (A$ - Australian Dollar)</option>
                 <option value="CAD">CAD (C$ - Canadian Dollar)</option>
                 <option value="CHF">CHF (CHF - Swiss Franc)</option>
@@ -66,6 +85,9 @@
                 <option value="IDR">IDR (Rp - Indonesian Rupiah)</option>
               </select>
             </div>
+            <button type="button" class="btn btn-outline btn-block btn-sm mt-2" id="mobile-converter-btn">
+              <span class="mr-1">💱</span> Live Currency Converter
+            </button>
           </div>
           <div id="mobile-auth-unauth">
             <button class="btn btn-outline btn-block btn-sm" id="nav-mobile-auth-btn">
@@ -90,18 +112,19 @@
 
       <!-- Right Header Actions (Currency Selector, Desktop Auth & Mobile Buttons) -->
       <div class="navbar-right-actions">
-        <!-- Worldwide Currency Selector -->
+        <!-- Worldwide Currency Selector & Live Converter -->
         <div class="nav-currency-selector-wrapper" id="nav-currency-selector-wrapper">
           <label for="nav-currency-select" class="sr-only">Display Currency</label>
           <div class="currency-picker-pill" title="Choose Display Currency">
             <span class="currency-picker-icon">🌐</span>
             <select id="nav-currency-select" class="nav-currency-select" aria-label="Choose Preferred Currency">
-              <option value="LOCAL">Local Currency</option>
               <option value="USD">USD ($)</option>
+              <option value="INR">INR (₹)</option>
               <option value="EUR">EUR (€)</option>
               <option value="GBP">GBP (£)</option>
               <option value="JPY">JPY (¥)</option>
-              <option value="INR">INR (₹)</option>
+              <option value="CNY">CNY (¥)</option>
+              <option value="SGD">SGD (S$)</option>
               <option value="AUD">AUD (A$)</option>
               <option value="CAD">CAD (C$)</option>
               <option value="CHF">CHF (CHF)</option>
@@ -109,6 +132,10 @@
               <option value="IDR">IDR (Rp)</option>
             </select>
           </div>
+          <button type="button" class="btn-converter-pill" id="nav-converter-btn" title="Open Live Currency Converter" aria-label="Open Live Currency Converter">
+            <span class="converter-icon">💱</span>
+            <span class="converter-text">Converter</span>
+          </button>
         </div>
 
         <!-- Desktop Auth Section -->
@@ -227,6 +254,9 @@
                 autocomplete="off"
                 aria-label="Search destinations"
               />
+              <button type="button" class="btn-clear-hero-search" id="hero-clear-search-btn" title="Clear and close search" style="display: none;" aria-label="Clear search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
               <button class="btn btn-primary" id="hero-search-btn">
                 <span>Search</span>
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -235,36 +265,39 @@
             <div class="hero-search-suggestions" id="hero-search-suggestions"></div>
           </div>
 
-          <!-- Quick Discovery Tags -->
-          <div class="hero-quick-tags animate-fade-in">
-            <span class="tags-lead">Trending themes:</span>
-            <button class="hero-quick-tag" data-tag="Beaches">🏖️ Beaches</button>
-            <button class="hero-quick-tag" data-tag="Mountains">🏔️ Mountains</button>
-            <button class="hero-quick-tag" data-tag="Culture">🏛️ Culture</button>
-            <button class="hero-quick-tag" data-tag="Luxury">✨ Luxury</button>
-            <button class="hero-quick-tag" data-tag="Foodie">🍷 Culinary</button>
-          </div>
-
-          <!-- Hero Action CTAs & Social Proof -->
-          <div class="hero-actions-group mt-4 animate-fade-in">
-            <a href="#explore" class="btn btn-glass btn-lg">
-              Explore All Destinations
-            </a>
-            <a href="#planner" class="btn btn-primary btn-lg ml-2" id="hero-plan-btn">
-              Plan Your Itinerary
-            </a>
-          </div>
-
-          <!-- Social Proof Indicator -->
-          <div class="hero-trust-bar animate-fade-in">
-            <div class="trust-avatars">
-              <span class="avatar-circle">👩‍🦰</span>
-              <span class="avatar-circle">👨‍🦱</span>
-              <span class="avatar-circle">👱‍♀️</span>
+          <!-- Hero Plan Your Itinerary & Related Options Container (Dynamically hidden during destination search) -->
+          <div class="hero-plan-itinerary-area" id="hero-plan-itinerary-area">
+            <!-- Quick Discovery Tags -->
+            <div class="hero-quick-tags animate-fade-in">
+              <span class="tags-lead">Trending themes:</span>
+              <button class="hero-quick-tag" data-tag="Beaches">🏖️ Beaches</button>
+              <button class="hero-quick-tag" data-tag="Mountains">🏔️ Mountains</button>
+              <button class="hero-quick-tag" data-tag="Culture">🏛️ Culture</button>
+              <button class="hero-quick-tag" data-tag="Luxury">✨ Luxury</button>
+              <button class="hero-quick-tag" data-tag="Foodie">🍷 Culinary</button>
             </div>
-            <div class="trust-text">
-              <span class="trust-stars">★★★★★</span>
-              <span>Trusted by <strong>120,000+</strong> global adventurers</span>
+
+            <!-- Hero Action CTAs & Social Proof -->
+            <div class="hero-actions-group mt-4 animate-fade-in">
+              <a href="#explore" class="btn btn-glass btn-lg">
+                Explore All Destinations
+              </a>
+              <a href="#planner" class="btn btn-primary btn-lg ml-2" id="hero-plan-btn">
+                Plan Your Itinerary
+              </a>
+            </div>
+
+            <!-- Social Proof Indicator -->
+            <div class="hero-trust-bar animate-fade-in">
+              <div class="trust-avatars">
+                <span class="avatar-circle">👩‍🦰</span>
+                <span class="avatar-circle">👨‍🦱</span>
+                <span class="avatar-circle">👱‍♀️</span>
+              </div>
+              <div class="trust-text">
+                <span class="trust-stars">★★★★★</span>
+                <span>Trusted by <strong>120,000+</strong> global adventurers</span>
+              </div>
             </div>
           </div>
         </div>
@@ -307,11 +340,11 @@
         </div>
       </section>
 
-      <!-- Why Choose Wayvora Section -->
-      <section class="home-section" id="section-why-us">
+      <!-- Why Choose Wayvora / Plan Your Itinerary Section -->
+      <section class="home-section home-plan-section" id="section-why-us">
         <div class="container">
           <div class="section-header text-center">
-            <span class="section-tag">Why Wayvora</span>
+            <span class="section-tag">Plan Your Itinerary</span>
             <h2 class="section-title">Travel Planning Made Simple</h2>
             <p class="section-desc">Everything you need to dream, discover, and organize your trips in one place.</p>
           </div>
@@ -430,9 +463,9 @@
                   <span>Budget:</span>
                   <select id="filter-budget-select">
                     <option value="All">Any Budget</option>
-                    <option value="$$">Budget ($$)</option>
-                    <option value="$$$">Moderate ($$$)</option>
-                    <option value="$$$$">Luxury ($$$$)</option>
+                    <option value="$">Budget-Friendly</option>
+                    <option value="$$">Mid-Range</option>
+                    <option value="$$$">Luxury / Upscale</option>
                   </select>
                 </div>
 
@@ -662,38 +695,30 @@
 
     <!-- ==================== VIEW: ABOUT ==================== -->
     <section class="view-section" id="view-about">
-      <div class="container">
+      <div class="container" style="padding: 3rem 1.5rem 5rem;">
+        
+        <!-- About Hero Block -->
         <div class="about-hero-block">
-          <span class="section-tag">Our Vision</span>
+          <span class="section-tag">Discover Wayvora</span>
           <h1>Empowering Meaningful Travel Worldwide</h1>
           <p class="text-lead text-muted mt-3">
-            Wayvora was built on a simple conviction: discovering new cultures, tasting local culinary wonders, and planning unforgettable adventures should feel inspiring and effortless.
+            Wayvora is your intelligent travel companion designed to make world exploration inspiring, intuitive, and accessible. From day-by-day itineraries and real-time weather to multi-currency insights, we make your journey unforgettable.
           </p>
         </div>
 
+        <!-- About Story & Stats Overview -->
         <div class="about-stats-grid">
           <div class="about-stat-box">
             <div class="about-stat-num">13</div>
-            <div class="about-stat-label">Curated Destinations</div>
+            <div class="about-stat-label">Global Curated Spots</div>
           </div>
           <div class="about-stat-box">
-            <div class="about-stat-num">
-              <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
-              </svg>
-            </div>
-            <div class="about-stat-label">Smart Trip Planning</div>
+            <div class="about-stat-num">64+</div>
+            <div class="about-stat-label">India States & Places</div>
           </div>
           <div class="about-stat-box">
-            <div class="about-stat-num">
-              <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="2" y1="12" x2="22" y2="12"></line>
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-              </svg>
-            </div>
-            <div class="about-stat-label">Discover Amazing Places</div>
+            <div class="about-stat-num">10</div>
+            <div class="about-stat-label">World Currencies</div>
           </div>
           <div class="about-stat-box">
             <div class="about-stat-num">100%</div>
@@ -701,50 +726,416 @@
           </div>
         </div>
 
-        <div class="section-header text-center mt-4">
-          <span class="section-tag">Our Philosophy</span>
-          <h2>Values That Guide Us</h2>
-        </div>
-
-        <div class="features-grid">
-          <div class="feature-box">
-            <h3>Authentic Discovery</h3>
-            <p>We believe in going beyond typical tourist traps to highlight authentic neighborhoods, local flavors, and cultural respect.</p>
-          </div>
-          <div class="feature-box">
-            <h3>Effortless Organization</h3>
-            <p>Travel planning should feel like the exciting beginning of your journey, not an overwhelming chore. Our intuitive tools keep everything organized.</p>
-          </div>
-          <div class="feature-box">
-            <h3>Sustainable Tourism</h3>
-            <p>We encourage mindful travel that supports local artisans, protects ecosystems, and preserves cultural heritage for generations to come.</p>
+        <div class="about-story-card">
+          <div class="about-story-content">
+            <span class="section-tag">The Story</span>
+            <h2>Why We Built Wayvora</h2>
+            <p>
+              Planning a trip shouldn't mean drowning in twenty open browser tabs, disorganized notes, and conflicting budget estimates. We built Wayvora to provide a single, elegant platform where travel dreams effortlessly transform into structured, enjoyable itineraries.
+            </p>
+            <p>
+              Whether you're exploring the historic cobblestone alleys of Rome, navigating the vibrant markets of Bengaluru, or unwinding in the tranquil waters of Santorini, Wayvora brings you verified attractions, live Open-Meteo weather forecasts, smart daily scheduling, and transparent multi-currency estimates.
+            </p>
+            <div class="about-story-actions mt-4">
+              <a href="#explore" class="btn btn-primary">Start Exploring Destinations</a>
+              <a href="#planner" class="btn btn-outline ml-3">Try Trip Planner</a>
+            </div>
           </div>
         </div>
 
-        <!-- FAQ Section -->
-        <div class="section-header text-center" style="margin-top: 5rem;">
-          <span class="section-tag">Got Questions?</span>
+        <!-- About Navigation Pill Tabs (Horizontal Single Row) -->
+        <div class="about-nav-pills-wrapper">
+          <div class="about-nav-pills" id="about-nav-pills" role="tablist" aria-label="About Wayvora Sections">
+            <button type="button" class="about-pill active" data-tab="mission" role="tab" aria-selected="true">
+              <span class="about-pill-icon">🎯</span>
+              <span>Our Mission</span>
+            </button>
+            <button type="button" class="about-pill" data-tab="philosophy" role="tab" aria-selected="false">
+              <span class="about-pill-icon">🌿</span>
+              <span>Travel Philosophy</span>
+            </button>
+            <button type="button" class="about-pill" data-tab="tips" role="tab" aria-selected="false">
+              <span class="about-pill-icon">💡</span>
+              <span>Travel Tips</span>
+            </button>
+            <button type="button" class="about-pill" data-tab="privacy" role="tab" aria-selected="false">
+              <span class="about-pill-icon">🔒</span>
+              <span>Privacy Policy</span>
+            </button>
+            <button type="button" class="about-pill" data-tab="contact" role="tab" aria-selected="false">
+              <span class="about-pill-icon">📬</span>
+              <span>Contact & Support</span>
+            </button>
+            <button type="button" class="about-pill" data-tab="developer" role="tab" aria-selected="false">
+              <span class="about-pill-icon">👩‍💻</span>
+              <span>About the Developer</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- TAB 1: OUR MISSION -->
+        <div class="about-panel active" id="about-panel-mission" role="tabpanel">
+          <div class="section-header text-center mb-4">
+            <span class="section-tag">Our Mission</span>
+            <h2>Empowering Independent Travelers Worldwide</h2>
+            <p class="section-desc">We exist to break down travel complexity and inspire authentic cultural journeys.</p>
+          </div>
+
+          <div class="features-grid">
+            <div class="feature-box mission-pillar-card">
+              <div class="pillar-icon">⚡</div>
+              <h3>Frictionless Trip Planning</h3>
+              <p>We believe planning should be as thrilling as the journey itself. Our intuitive day-by-day scheduler, budget tracker, and printable itineraries eliminate the confusion of organizing travel.</p>
+            </div>
+
+            <div class="feature-box mission-pillar-card">
+              <div class="pillar-icon">🏛️</div>
+              <h3>Cultural Authenticity</h3>
+              <p>Travel is more than generic selfie backdrops. We spotlight local neighborhood gems, regional culinary staples, and cultural etiquette so you connect meaningfully with every destination.</p>
+            </div>
+
+            <div class="feature-box mission-pillar-card">
+              <div class="pillar-icon">🌍</div>
+              <h3>100% Free & Open Access</h3>
+              <p>Great travel tools shouldn't be locked behind expensive subscriptions or gated paywalls. Wayvora is completely free, community-oriented, and accessible on any device.</p>
+            </div>
+
+            <div class="feature-box mission-pillar-card">
+              <div class="pillar-icon">🌱</div>
+              <h3>Conscious Stewardship</h3>
+              <p>We advocate for responsible tourism that supports indigenous communities, preserves delicate ecosystems, and respects historical monuments for generations to come.</p>
+            </div>
+          </div>
+
+          <div class="mission-callout-card mt-4">
+            <div class="mission-callout-body">
+              <h3>Our Ongoing Commitment</h3>
+              <p>
+                Every feature we ship — from live weather updates to multi-currency conversion — is built to give travelers greater autonomy, safety, and confidence wherever they venture on our planet.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: TRAVEL PHILOSOPHY -->
+        <div class="about-panel" id="about-panel-philosophy" role="tabpanel">
+          <div class="section-header text-center mb-4">
+            <span class="section-tag">Travel Philosophy</span>
+            <h2>The Art of Mindful & Immersive Exploration</h2>
+            <p class="section-desc">We believe the value of travel is measured in meaningful connections, not just checked boxes.</p>
+          </div>
+
+          <div class="philosophy-quote-box">
+            <blockquote>
+              "The real voyage of discovery consists not in seeking new landscapes, but in having new eyes."
+            </blockquote>
+            <cite>— Marcel Proust</cite>
+          </div>
+
+          <div class="features-grid mt-4">
+            <div class="feature-box">
+              <span class="philosophy-badge">Principle 1</span>
+              <h3>Travel Deeper, Not Faster</h3>
+              <p>Spending three unhurried days wandering an authentic neighborhood yields richer memories than rushing through ten landmarks in an afternoon. Slow down and soak in the atmosphere.</p>
+            </div>
+
+            <div class="feature-box">
+              <span class="philosophy-badge">Principle 2</span>
+              <h3>Support Local Economies</h3>
+              <p>Dine at family-run trattorias, buy handicrafts directly from neighborhood artisans, and hire certified local guides. Ensure your travel dollars enrich the host community.</p>
+            </div>
+
+            <div class="feature-box">
+              <span class="philosophy-badge">Principle 3</span>
+              <h3>Leave Every Place Pristine</h3>
+              <p>Practice Leave No Trace principles everywhere you explore. Respect wildlife habitats, reduce single-use plastics, and honor sacred rituals and local customs.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: TRAVEL TIPS -->
+        <div class="about-panel" id="about-panel-tips" role="tabpanel">
+          <div class="section-header text-center mb-4">
+            <span class="section-tag">Expert Advice</span>
+            <h2>Essential Travel Tips for Global Explorers</h2>
+            <p class="section-desc">Battle-tested advice to save money, stay safe, and travel effortlessly anywhere in the world.</p>
+          </div>
+
+          <div class="tips-grid">
+            <div class="tip-card">
+              <div class="tip-number">01</div>
+              <div class="tip-content">
+                <h3>Smart Capsule Packing</h3>
+                <p>Pack a versatile 7-day capsule wardrobe in coordinated neutral tones. Always keep medications, a portable power bank, essential documents, and one change of clothes in your personal carry-on bag.</p>
+                <span class="tip-tag">Preparation</span>
+              </div>
+            </div>
+
+            <div class="tip-card">
+              <div class="tip-number">02</div>
+              <div class="tip-content">
+                <h3>Currency & ATM Savvy</h3>
+                <p>When paying by card or withdrawing foreign currency at overseas ATMs, <strong>always choose "Pay in Local Currency"</strong>. Declining Dynamic Currency Conversion (DCC) ensures you get your bank's true wholesale exchange rate without 5–10% markup.</p>
+                <span class="tip-tag">Finance</span>
+              </div>
+            </div>
+
+            <div class="tip-card">
+              <div class="tip-number">03</div>
+              <div class="tip-content">
+                <h3>Offline Maps & Connectivity</h3>
+                <p>Download offline Google Maps regions and offline language dictionaries before departing. Purchase local eSIMs or international roaming packages for seamless connectivity on the go.</p>
+                <span class="tip-tag">Technology</span>
+              </div>
+            </div>
+
+            <div class="tip-card">
+              <div class="tip-number">04</div>
+              <div class="tip-content">
+                <h3>Health & Emergency Preparedness</h3>
+                <p>Always secure comprehensive travel medical insurance with repatriation coverage. Store digital copies of your passport and visa on secure cloud storage and register with your home embassy's travel program.</p>
+                <span class="tip-tag">Safety</span>
+              </div>
+            </div>
+
+            <div class="tip-card">
+              <div class="tip-number">05</div>
+              <div class="tip-content">
+                <h3>Cultural Etiquette & Respect</h3>
+                <p>Learn five courtesy phrases in the destination's language (Hello, Please, Thank You, Excuse Me, How Much). Observe respectful attire at spiritual shrines, temples, and religious heritage sites.</p>
+                <span class="tip-tag">Culture</span>
+              </div>
+            </div>
+
+            <div class="tip-card">
+              <div class="tip-number">06</div>
+              <div class="tip-content">
+                <h3>Golden Hours & Beating Crowds</h3>
+                <p>Visit iconic tourist attractions at sunrise or late afternoon. You will avoid overwhelming tour bus queues, enjoy cooler temperatures, and capture stunning travel photography in natural golden light.</p>
+                <span class="tip-tag">Timing</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: PRIVACY POLICY -->
+        <div class="about-panel" id="about-panel-privacy" role="tabpanel">
+          <div class="section-header text-center mb-4">
+            <span class="section-tag">Data Protection</span>
+            <h2>Privacy Policy & Security Practices</h2>
+            <p class="section-desc">Transparent information on how Wayvora protects your data, session, and itineraries.</p>
+          </div>
+
+          <div class="privacy-content-card">
+            <div class="privacy-section-item">
+              <div class="privacy-item-header">
+                <span class="privacy-icon">🛡️</span>
+                <h3>1. Local-First Storage Architecture</h3>
+              </div>
+              <p>
+                By default, your created itineraries, favorite destinations, and currency preferences are stored securely on your own device using browser <code>localStorage</code>. Your trip plans stay under your direct control without being transmitted to unauthorized servers.
+              </p>
+            </div>
+
+            <div class="privacy-section-item">
+              <div class="privacy-item-header">
+                <span class="privacy-icon">🔐</span>
+                <h3>2. Firebase Cloud Authentication</h3>
+              </div>
+              <p>
+                When you create a Wayvora Account, user credentials are handled directly through Google Firebase Authentication using industry-standard TLS encryption and bcrypt password hashing. Wayvora never sees, stores, or logs plain-text passwords.
+              </p>
+            </div>
+
+            <div class="privacy-section-item">
+              <div class="privacy-item-header">
+                <span class="privacy-icon">🚫</span>
+                <h3>3. Zero Data Monetization</h3>
+              </div>
+              <p>
+                We do not sell, rent, or trade your personal data, planned travel dates, or browsing history to third-party advertisers, data aggregators, or marketing firms.
+              </p>
+            </div>
+
+            <div class="privacy-section-item">
+              <div class="privacy-item-header">
+                <span class="privacy-icon">⛅</span>
+                <h3>4. Anonymous Weather Queries</h3>
+              </div>
+              <p>
+                Live atmospheric conditions and forecasts are retrieved from Open-Meteo's open API using destination coordinates. No personal identity, cookie, or IP tracking data is transmitted with weather queries.
+              </p>
+            </div>
+
+            <div class="privacy-section-item">
+              <div class="privacy-item-header">
+                <span class="privacy-icon">⚖️</span>
+                <h3>5. User Data Sovereignty</h3>
+              </div>
+              <p>
+                You retain full ownership of your data. You can export your itineraries anytime via the Trip Planner's Print/Export feature, clear browser cache, or request account removal through our support channel.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 6: CONTACT & SUPPORT -->
+        <div class="about-panel" id="about-panel-contact" role="tabpanel">
+          <div class="section-header text-center mb-4">
+            <span class="section-tag">We Are Here For You</span>
+            <h2>Contact & Support</h2>
+            <p class="section-desc">Have a question about trip planning, want to report an issue, or propose a partnership?</p>
+          </div>
+
+          <div class="contact-layout-grid">
+            <!-- Contact Support Form -->
+            <div class="contact-form-card">
+              <h3>Send Us a Message</h3>
+              <p class="text-sm text-muted mb-4">Our support team responds to traveler inquiries promptly.</p>
+
+              <!-- Success Alert Banner (Initially Hidden) -->
+              <div class="alert alert-success mb-3" id="contact-success-banner" style="display: none;" role="alert">
+                <strong>✓ Message Sent!</strong> Thank you for reaching out. Our support team will review your inquiry and follow up shortly.
+              </div>
+
+              <form id="form-contact-support" novalidate>
+                <div class="form-group mb-3">
+                  <label for="contact-name" class="font-bold text-sm block mb-1">Your Full Name <span class="text-danger">*</span></label>
+                  <input type="text" id="contact-name" class="form-control" placeholder="e.g. Alex Morgan" required />
+                </div>
+
+                <div class="form-group mb-3">
+                  <label for="contact-email" class="font-bold text-sm block mb-1">Email Address <span class="text-danger">*</span></label>
+                  <input type="email" id="contact-email" class="form-control" placeholder="alex@example.com" required />
+                </div>
+
+                <div class="form-group mb-3">
+                  <label for="contact-category" class="font-bold text-sm block mb-1">Inquiry Category</label>
+                  <select id="contact-category" class="form-control">
+                    <option value="planning">Trip Planning Help</option>
+                    <option value="feature">Feature Suggestion</option>
+                    <option value="bug">Report a Display or Bug Issue</option>
+                    <option value="general">General Question</option>
+                    <option value="partnership">Partnership & Collaboration</option>
+                  </select>
+                </div>
+
+                <div class="form-group mb-3">
+                  <label for="contact-message" class="font-bold text-sm block mb-1">Your Message <span class="text-danger">*</span></label>
+                  <textarea id="contact-message" class="form-control" rows="4" placeholder="How can we assist your travel planning today?" required></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-submit-contact">
+                  Send Message to Support
+                </button>
+              </form>
+            </div>
+
+            <!-- Contact Information & Project Details -->
+            <div class="contact-info-card">
+              <h3>Support Channels</h3>
+              <p class="text-muted text-sm mb-4">Official communication and assistance points for the Wayvora platform.</p>
+
+              <div class="contact-channel-item">
+                <div class="channel-icon">✉️</div>
+                <div>
+                  <strong>Email Inquiries</strong>
+                  <p><a href="mailto:support@wayvora.com" class="text-primary font-bold">support@wayvora.com</a></p>
+                  <span class="text-xs text-muted">Direct inbox for traveler inquiries</span>
+                </div>
+              </div>
+
+              <div class="contact-channel-item">
+                <div class="channel-icon">⏱️</div>
+                <div>
+                  <strong>Typical Response Time</strong>
+                  <p class="font-bold text-main">Within 24–48 Hours</p>
+                  <span class="text-xs text-muted">Monday through Friday global coverage</span>
+                </div>
+              </div>
+
+              <div class="contact-channel-item">
+                <div class="channel-icon">🟢</div>
+                <div>
+                  <strong>Platform Services Status</strong>
+                  <p class="font-bold text-success">100% Operational</p>
+                  <span class="text-xs text-muted">Firebase Cloud & Open-Meteo APIs active</span>
+                </div>
+              </div>
+
+              <div class="contact-channel-item">
+                <div class="channel-icon">💻</div>
+                <div>
+                  <strong>Open Travel Platform</strong>
+                  <p class="font-bold text-main">Wayvora Web Application</p>
+                  <span class="text-xs text-muted">Built for global travelers with modern web standards</span>
+                </div>
+              </div>
+
+              <div class="contact-note-box mt-3">
+                <p class="text-xs text-muted">
+                  Note: Wayvora is an independent travel technology project. For business inquiries, API suggestions, or technical questions, please submit the support form above or reach out via email.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 7: ABOUT THE DEVELOPER -->
+        <div class="about-panel" id="about-panel-developer" role="tabpanel">
+          <div class="section-header text-center mb-4">
+            <span class="section-tag">Creator &amp; Vision</span>
+            <h2>About the Developer</h2>
+            <p class="section-desc">The personal journey, vision, and dedication behind the creation of WAYVORA.</p>
+          </div>
+
+          <div class="developer-profile-card">
+            <div class="developer-profile-grid">
+              <div class="developer-photo-col">
+                <div class="developer-photo-frame">
+                  <img
+                    src="images/preeti-profile.jpg"
+                    alt="Preeti Chavvannavar - Creator & Developer of WAYVORA"
+                    class="developer-photo"
+                    onerror="this.onerror=null; this.src='images/preeti-profile.jpg.jpeg';"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+              <div class="developer-info-col">
+                <h3 class="developer-heading">About the Developer</h3>
+                <h2 class="developer-name">Preeti Chavvannavar</h2>
+                <div class="developer-education">BCA Final-Year Student</div>
+                <div class="developer-role">Creator &amp; Developer of WAYVORA</div>
+                <blockquote class="developer-quote">
+                  “I created WAYVORA to explore web development and build a convenient travel-planning platform. With the assistance of AI-powered development tools, I worked on bringing destination discovery, trip planning, and useful travel information together in one place.”
+                </blockquote>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick FAQ / Common Questions -->
+        <div class="section-header text-center mt-5">
+          <span class="section-tag">Quick Answers</span>
           <h2>Frequently Asked Questions</h2>
         </div>
 
         <div class="faq-list">
           <div class="faq-item">
-            <h4>How do I plan a trip on Wayvora?</h4>
-            <p>You can create a new trip by clicking "Plan a Trip" in the navigation bar or selecting "Add to Trip" on any destination card. Enter your travel dates and start arranging attractions day by day!</p>
+            <h4>How do I plan a custom trip on Wayvora?</h4>
+            <p>Head over to the <a href="#planner" class="text-primary font-bold">Trip Planner</a> or click "Add to Trip" on any destination card. Enter your travel dates, and our interactive planner will help you organize attractions, meals, and transit day by day.</p>
           </div>
           <div class="faq-item">
-            <h4>Are my saved favourites and itineraries kept when I refresh?</h4>
-            <p>Yes! Wayvora automatically saves your favourites and planned itineraries to your browser's local storage, ensuring your plans stay right where you left them.</p>
+            <h4>Do my itineraries and favourites get saved?</h4>
+            <p>Yes! Wayvora uses local-first browser storage and real-time Google Firebase Cloud sync when you sign in. Your itineraries and bucket lists remain securely saved across your sessions.</p>
           </div>
           <div class="faq-item">
-            <h4>Can I print or export my itinerary?</h4>
-            <p>Absolutely. Inside the Trip Planner, simply click the "Print / Export" button to generate a clean, distraction-free printable travel summary.</p>
-          </div>
-          <div class="faq-item">
-            <h4>How are the daily budgets calculated?</h4>
-            <p>Our budget breakdowns reflect average mid-range travel estimates including accommodations, meals, local transit, and popular attraction admissions.</p>
+            <h4>How accurate is the weather information?</h4>
+            <p>We query the live Open-Meteo meteorological API using exact destination coordinates for real-time temperatures, wind, humidity, and 5-day daily forecasts without relying on hardcoded estimates.</p>
           </div>
         </div>
+
       </div>
     </section>
 
@@ -754,7 +1145,8 @@
   <footer class="footer">
     <div class="container">
       <div class="footer-grid">
-        <div>
+        <!-- Brand Info -->
+        <div class="footer-col-brand">
           <div class="footer-brand">
             <div class="brand-icon" style="width: 32px; height: 32px;">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -767,49 +1159,58 @@
           <p class="footer-desc">
             Your modern companion for global exploration. Discover stunning destinations, curate day-by-day itineraries, and travel with peace of mind.
           </p>
+          <div class="footer-badge-pill mt-3">
+            <span class="text-xs" style="color: #38bdf8; font-weight: 600;">✓ Live Weather & Multi-Currency Active</span>
+          </div>
         </div>
 
+        <!-- Col 1: Explore Destinations -->
         <div>
           <h4 class="footer-heading">Destinations</h4>
           <ul class="footer-links">
-            <li><a href="#explore">Europe Getaways</a></li>
-            <li><a href="#explore">Tropical Asia</a></li>
-            <li><a href="#explore">Americas & Cities</a></li>
-            <li><a href="#explore">Middle East Wonders</a></li>
-            <li><a href="#explore">Island Retreats</a></li>
+            <li><a href="#explore" class="footer-link">All 13 Global Spots</a></li>
+            <li><a href="#india" class="footer-link">India Travel Hub (64 Places)</a></li>
+            <li><a href="#explore" class="footer-link footer-link-region" data-region="Europe">Europe Getaways</a></li>
+            <li><a href="#explore" class="footer-link footer-link-region" data-region="Asia">Tropical Asia</a></li>
+            <li><a href="#explore" class="footer-link footer-link-region" data-region="Americas">Americas & Cities</a></li>
           </ul>
         </div>
 
+        <!-- Col 2: Planning Tools -->
         <div>
-          <h4 class="footer-heading">Features</h4>
+          <h4 class="footer-heading">Trip Planning</h4>
           <ul class="footer-links">
-            <li><a href="#planner">Day-by-Day Planner</a></li>
-            <li><a href="#favourites">Saved Favourites</a></li>
-            <li><a href="#explore">Budget Insights</a></li>
-            <li><a href="#home">Seasonal Timing</a></li>
-            <li><a href="#about">Travel Tips</a></li>
+            <li><a href="#planner" class="footer-link">Day-by-Day Itinerary Planner</a></li>
+            <li><a href="#favourites" class="footer-link">Saved Favourites</a></li>
+            <li><button type="button" class="footer-link-btn" id="footer-converter-btn">Live Currency Converter</button></li>
+            <li><button type="button" class="footer-link-btn" id="footer-weather-btn">Live Weather Forecasts</button></li>
+            <li><a href="#about-tips" class="footer-link footer-about-link" data-about-tab="tips">Essential Travel Tips</a></li>
           </ul>
         </div>
 
+        <!-- Col 3: Company & Support (The 6 Essential Sections!) -->
         <div>
-          <h4 class="footer-heading">Company</h4>
+          <h4 class="footer-heading">About & Support</h4>
           <ul class="footer-links">
-            <li><a href="#about">About Wayvora</a></li>
-            <li><a href="#about">Our Mission</a></li>
-            <li><a href="#about">Travel Philosophy</a></li>
-            <li><a href="#about">Privacy & Terms</a></li>
-            <li><a href="#about">Contact Support</a></li>
+            <li><a href="#about" class="footer-link footer-about-link" data-about-tab="mission">About WAYVORA</a></li>
+            <li><a href="#about-mission" class="footer-link footer-about-link" data-about-tab="mission">Our Mission</a></li>
+            <li><a href="#about-philosophy" class="footer-link footer-about-link" data-about-tab="philosophy">Travel Philosophy</a></li>
+            <li><a href="#about-tips" class="footer-link footer-about-link" data-about-tab="tips">Travel Tips</a></li>
+            <li><a href="#about-privacy" class="footer-link footer-about-link" data-about-tab="privacy">Privacy Policy</a></li>
+            <li><a href="#about-contact" class="footer-link footer-about-link" data-about-tab="contact">Contact & Support</a></li>
+            <li><a href="#about-developer" class="footer-link footer-about-link" data-about-tab="developer">About the Developer</a></li>
           </ul>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <p>&copy; 2026 Wayvora Inc. All rights reserved. Designed for world explorers.</p>
-        <div class="footer-social-links">
-          <a href="#home" title="Twitter / X">Twitter</a>
-          <a href="#home" title="Instagram">Instagram</a>
-          <a href="#home" title="YouTube">YouTube</a>
-          <a href="#home" title="Pinterest">Pinterest</a>
+        <p>&copy; 2026 Wayvora. Designed for world explorers.</p>
+        <div class="footer-legal-links">
+          <a href="#about-privacy" class="footer-about-link" data-about-tab="privacy">Privacy Policy</a>
+          <span class="footer-dot">•</span>
+          <a href="#about-contact" class="footer-about-link" data-about-tab="contact">Contact & Support</a>
+          <span class="footer-dot">•</span>
+          <a href="#about-tips" class="footer-about-link" data-about-tab="tips">Travel Tips</a>
         </div>
       </div>
     </div>

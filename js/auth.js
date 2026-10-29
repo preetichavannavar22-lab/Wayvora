@@ -399,6 +399,9 @@ const AuthService = {
       case "auth/invalid-email":
         return "The email address is formatted incorrectly.";
       case "auth/user-not-found":
+        return "No account found with this email address. Please verify your email or create an account.";
+      case "auth/missing-email":
+        return "Please enter your registered email address.";
       case "auth/wrong-password":
       case "auth/invalid-credential":
         return "Incorrect email or password. Please verify and try again.";
@@ -547,6 +550,11 @@ const AuthService = {
   },
 
   switchAuthTab(tabName) {
+    const tabsNav = document.getElementById("auth-tabs-nav");
+    if (tabsNav) {
+      tabsNav.style.display = tabName === "forgot" ? "none" : "flex";
+    }
+
     const tabs = document.querySelectorAll(".auth-tab-btn");
     tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === tabName));
 
@@ -562,7 +570,17 @@ const AuthService = {
       }
     });
 
+    // If switching to forgot password, prefill email if user already typed in login
+    if (tabName === "forgot") {
+      const loginEmail = document.getElementById("login-email")?.value.trim();
+      const forgotEmail = document.getElementById("forgot-email");
+      if (loginEmail && forgotEmail && !forgotEmail.value) {
+        forgotEmail.value = loginEmail;
+      }
+    }
+
     this.setAuthError("");
+    this.setAuthSuccess("");
 
     // Reset scroll position to top when switching auth panels
     const dialog = document.querySelector(".auth-dialog");
@@ -675,11 +693,10 @@ const AuthService = {
         <div class="auth-alert alert-error" id="auth-error-banner" style="display: none;"></div>
         <div class="auth-alert alert-success" id="auth-success-banner" style="display: none;"></div>
 
-        <!-- Auth Tabs -->
-        <div class="auth-tabs-nav">
+        <!-- Auth Tabs (Sign In & Create Account only) -->
+        <div class="auth-tabs-nav" id="auth-tabs-nav">
           <button class="auth-tab-btn active" data-tab="login">Sign In</button>
           <button class="auth-tab-btn" data-tab="signup">Create Account</button>
-          <button class="auth-tab-btn" data-tab="forgot">Forgot Password</button>
         </div>
 
         <!-- ================= PANEL 1: LOGIN ================= -->
@@ -695,11 +712,8 @@ const AuthService = {
               </div>
             </div>
 
-            <div class="form-group">
-              <div class="label-with-link">
-                <label for="login-password">Password</label>
-                <button type="button" class="btn-text-link" id="link-goto-forgot">Forgot?</button>
-              </div>
+            <div class="form-group mb-1">
+              <label for="login-password">Password</label>
               <div class="input-with-icon">
                 <span class="input-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -709,6 +723,11 @@ const AuthService = {
                   ${this.icons.eye}
                 </button>
               </div>
+            </div>
+
+            <!-- Single Forgot Password link directly below password input -->
+            <div class="auth-forgot-link-wrap">
+              <button type="button" class="btn-text-link" id="link-goto-forgot">Forgot Password?</button>
             </div>
 
             <button type="submit" class="btn btn-primary btn-block btn-lg mt-3" id="btn-submit-login">
@@ -784,10 +803,14 @@ const AuthService = {
 
         <!-- ================= PANEL 3: FORGOT PASSWORD ================= -->
         <div class="auth-panel" id="auth-panel-forgot" style="display: none;">
-          <form id="form-auth-forgot" class="auth-form" novalidate>
-            <p class="text-muted text-sm mb-3">
-              Enter your registered email address and we'll send a secure Firebase password reset link to your inbox.
+          <div class="auth-panel-header mb-3">
+            <h3 class="font-bold text-lg" style="color: var(--text-main); margin-bottom: 0.25rem;">Reset Your Password</h3>
+            <p class="text-muted text-sm">
+              Enter the email address registered with your Wayvora account. We will send a secure Firebase password-reset link to your inbox.
             </p>
+          </div>
+
+          <form id="form-auth-forgot" class="auth-form" novalidate>
             <div class="form-group">
               <label for="forgot-email">Registered Email Address</label>
               <div class="input-with-icon">
@@ -803,8 +826,8 @@ const AuthService = {
             </button>
           </form>
 
-          <div class="auth-footer-prompt">
-            <button type="button" class="btn-text-link" id="link-back-login">← Back to Sign In</button>
+          <div class="auth-footer-prompt mt-3">
+            <button type="button" class="btn-text-link font-semibold" id="link-back-login">← Back to Sign In</button>
           </div>
         </div>
 
@@ -907,11 +930,22 @@ const AuthService = {
       const email = document.getElementById("forgot-email").value.trim();
       const submitBtn = document.getElementById("btn-submit-forgot");
 
+      if (!email) {
+        this.setAuthError("Please enter your registered email address.");
+        return;
+      }
+
+      if (!this.isValidEmail(email)) {
+        this.setAuthError("Please enter a valid email address (e.g. name@example.com).");
+        return;
+      }
+
       try {
         submitBtn.disabled = true;
-        submitBtn.textContent = "Sending Link...";
+        submitBtn.textContent = "Sending Reset Link...";
         await this.resetPassword(email);
-        this.setAuthSuccess(`Password reset email sent! Check ${email} for instructions.`);
+        this.setAuthSuccess(`Password reset email sent! Please check your inbox at ${email} for instructions to reset your password.`);
+        if (window.UI) UI.showToast("Password reset link sent to your email!", "success");
       } catch (err) {
         this.setAuthError(err.message);
       } finally {

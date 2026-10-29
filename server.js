@@ -135,7 +135,7 @@ function getWeatherConditionString(code) {
 
 function httpGetJson(reqUrl) {
   return new Promise((resolve, reject) => {
-    https.get(reqUrl, (res) => {
+    https.get(reqUrl, { headers: { 'User-Agent': 'Wayvora-Travel-Platform/1.0' } }, (res) => {
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
@@ -147,6 +147,54 @@ function httpGetJson(reqUrl) {
       });
     }).on('error', reject);
   });
+}
+
+// In-memory currency cache (TTL: 1 hour)
+let cachedServerCurrency = null;
+let lastServerCurrencyFetchTime = 0;
+const SERVER_CURRENCY_CACHE_TTL = 3600000;
+
+async function fetchLiveCurrency(force = false) {
+  const now = Date.now();
+  if (!force && cachedServerCurrency && (now - lastServerCurrencyFetchTime < SERVER_CURRENCY_CACHE_TTL)) {
+    return { ...cachedServerCurrency, fromCache: true };
+  }
+
+  const apiKey = process.env.EXCHANGE_RATE_API_KEY || process.env.CURRENCY_API_KEY;
+  const apiUrl = apiKey 
+    ? `https://v6.exchangerate-api.com/v6/${apiKey}/latest/USD`
+    : `https://open.er-api.com/v6/latest/USD`;
+
+  try {
+    const data = await httpGetJson(apiUrl);
+    const rawRates = data.conversion_rates || data.rates;
+    if (!rawRates) throw new Error('Missing rates in response');
+
+    cachedServerCurrency = {
+      success: true,
+      base: data.base_code || data.base || 'USD',
+      rates: rawRates,
+      timeLastUpdateUtc: data.time_last_update_utc || new Date().toUTCString(),
+      timeNextUpdateUtc: data.time_next_update_utc || '',
+      provider: apiKey ? 'ExchangeRate-API (Authenticated Pro)' : 'ExchangeRate-API (Live)',
+      timestamp: now,
+      isLive: true
+    };
+    lastServerCurrencyFetchTime = now;
+    return cachedServerCurrency;
+  } catch (err) {
+    console.error('Failed to fetch live currency rates from API:', err.message);
+    if (cachedServerCurrency) {
+      return {
+        ...cachedServerCurrency,
+        isLive: false,
+        isOutdated: true,
+        staleReason: err.message,
+        fromCache: true
+      };
+    }
+    throw err;
+  }
 }
 
 function readAiConfig() {
@@ -717,6 +765,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   // -------------------------------------------------------------
+  // API ENDPOINT: /api/currency (Live Exchange Rates)
+  // -------------------------------------------------------------
+  if (pathname === '/api/currency' && req.method === 'GET') {
+    const force = parsedUrl.query.refresh === 'true' || parsedUrl.query.force === 'true';
+    try {
+      const currencyData = await fetchLiveCurrency(force);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(currencyData));
+    } catch (e) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: false,
+        error: 'Exchange rate provider temporarily unavailable',
+        details: e.message
+      }));
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------
   // STATIC FILES SERVING
   // -------------------------------------------------------------
   let reqPath = pathname;
@@ -751,5 +819,6 @@ if (require.main === module) {
 module.exports = {
   server,
   fetchLiveWeather,
+  fetchLiveCurrency,
   processChatRequest
 };
