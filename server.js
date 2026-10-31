@@ -1,5 +1,5 @@
 /**
- * Wayvora - Backend Server with Intelligent AI Agent & Open-Meteo Live Weather
+ * Wayvora Local Development Server & API Gateway
  * Serves static frontend files and provides /api/chat with support for Google Gemini, OpenAI,
  * and built-in contextual conversational intelligence.
  */
@@ -9,6 +9,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const AIEngine = require('./js/ai-engine.js');
 
 const PORT = 5500;
 const PUBLIC_DIR = path.resolve(__dirname);
@@ -217,19 +218,34 @@ async function callGeminiApi(apiKey, model, messages, systemPrompt) {
   const modelName = model || 'gemini-1.5-flash';
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-  // Format messages into Gemini contents
+  // Format messages into Gemini contents with alternating roles
   const contents = [];
-  messages.forEach(m => {
-    contents.push({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }]
-    });
-  });
+  let currentRole = null;
+  let currentParts = [];
 
-  const payload = {
-    contents: contents
-  };
+  for (const m of messages) {
+    if (!m || !m.content) continue;
+    const role = m.role === 'assistant' ? 'model' : 'user';
+    if (role === currentRole) {
+      currentParts.push({ text: m.content });
+    } else {
+      if (currentRole) {
+        contents.push({ role: currentRole, parts: currentParts });
+      }
+      currentRole = role;
+      currentParts = [{ text: m.content }];
+    }
+  }
+  if (currentRole) {
+    contents.push({ role: currentRole, parts: currentParts });
+  }
 
+  // Ensure first message is user
+  if (contents.length > 0 && contents[0].role === 'model') {
+    contents.shift();
+  }
+
+  const payload = { contents };
   if (systemPrompt) {
     payload.system_instruction = {
       parts: [{ text: systemPrompt }]
@@ -333,320 +349,17 @@ async function callOpenAiApi(apiKey, model, messages, systemPrompt) {
 
 /**
  * Built-in Contextual Intelligence Engine
- * Handles multi-turn memory, intent detection, live weather integration,
- * worldwide and Indian travel planning with INR (₹), programming, and general conversation.
+ * Multilingual, context-aware, fault-tolerant natural language travel concierge.
+ * Supports English, Kannada (ಕನ್ನಡ), Hindi (हिंदी), Hinglish, and Kanglish.
  */
 async function generateIntelligentResponse(messages, context = {}) {
-  const lastUserMsg = messages.filter(m => m.role === 'user').pop();
-  if (!lastUserMsg) return "Hello! How can I assist you today?";
-
-  const query = lastUserMsg.content.trim();
-  const qLower = query.toLowerCase();
-
-  // Find recent conversation topics for context-aware follow-ups
-  const conversationText = messages.map(m => m.content).join(' ').toLowerCase();
-
-  // 1. WEATHER INTENT
-  if (
-    qLower.includes('weather') ||
-    qLower.includes('temperature') ||
-    qLower.includes('climate today') ||
-    qLower.includes('is it raining in')
-  ) {
-    let targetPlace = 'Goa';
-    if (qLower.includes('in goa') || qLower.includes('goa')) targetPlace = 'Goa';
-    else if (qLower.includes('kerala')) targetPlace = 'Kerala';
-    else if (qLower.includes('belagavi') || qLower.includes('belgaum')) targetPlace = 'Belagavi';
-    else if (qLower.includes('bengaluru') || qLower.includes('bangalore')) targetPlace = 'Bengaluru';
-    else if (qLower.includes('mumbai')) targetPlace = 'Mumbai';
-    else if (qLower.includes('delhi')) targetPlace = 'Delhi';
-    else if (qLower.includes('paris')) targetPlace = 'Paris';
-    else if (qLower.includes('dubai')) targetPlace = 'Dubai';
-    else if (qLower.includes('tokyo')) targetPlace = 'Tokyo';
-    else if (qLower.includes('switzerland')) targetPlace = 'Switzerland';
-    else {
-      const match = qLower.match(/weather\s+(?:in|for|at)\s+([a-zA-Z\s]+)/);
-      if (match && match[1]) {
-        targetPlace = match[1].replace(/today|now|please/g, '').trim();
-      }
-    }
-
-    const live = await fetchLiveWeather(targetPlace);
-    if (live) {
-      return `☀️ **Live Weather Update for ${live.place}**\n\n` +
-        `• **Current Temperature:** **${live.tempC}°C** (${live.tempF}°F)\n` +
-        `• **Condition:** ${live.condition}\n` +
-        `• **Humidity:** ${live.humidity}%\n` +
-        `• **Wind Speed:** ${live.wind} km/h\n` +
-        `• **Today's Expected Range:** ${live.low}°C – ${live.high}°C\n\n` +
-        `💡 *Travel Insight:* ${live.tempC > 28 ? 'Stay well hydrated, apply SPF sunscreen, and wear breathable cotton clothing for exploring!' : 'Comfortable weather for sightseeing and outdoor excursions!'}\n\n` +
-        `*(Source: Real-time data verified via Open-Meteo Live API)*`;
-    } else {
-      return `Currently, live weather station access for "${targetPlace}" is temporarily unavailable. However, based on regional historical averages, you can expect warm, tropical temperatures around 28°C–32°C. You can also view live forecasts using the **Live Weather** button in the top navigation bar!`;
-    }
+  try {
+    return await AIEngine.processConversation(messages, fetchLiveWeather);
+  } catch (err) {
+    console.error('Error in built-in conversational intelligence engine:', err);
+    return "Hello! I am your **Wayvora AI Assistant & Travel Concierge**. How can I help you plan your next trip or answer your travel questions today?";
   }
-
-  // 2. WATERFALLS NEAR BELAGAVI, KARNATAKA
-  if (
-    (qLower.includes('waterfall') || qLower.includes('falls')) &&
-    (qLower.includes('belagavi') || qLower.includes('belgaum') || qLower.includes('karnataka'))
-  ) {
-    return `🌊 **Magnificent Waterfalls Near Belagavi, Karnataka**\n\n` +
-      `Belagavi (Belgaum) is nestled near the lush Western Ghats, making it a gateway to some of South India's most spectacular waterfalls:\n\n` +
-      `1. **Gokak Falls** *(~65 km from Belagavi)*\n` +
-      `   • Known as the **"Niagara of Karnataka"**, where the Ghataprabha River plunges 52 meters (171 ft) over sandstone cliffs into a horseshoe-shaped gorge.\n` +
-      `   • **Highlight:** Walk across the thrilling 201-meter historic hanging suspension bridge built in 1907.\n\n` +
-      `2. **Godchinamalaki Falls** *(~55 km from Belagavi)*\n` +
-      `   • A stunning two-tier cascade on the Markandeya River located in a peaceful, verdant valley near Gokak.\n` +
-      `   • First drop of 25 meters followed by a second drop of 20 meters over stepped rock formations.\n\n` +
-      `3. **Vajrapoha Falls** *(~60 km from Belagavi, near Jamboti)*\n` +
-      `   • An offbeat, pristine 200-meter waterfall on the Mandovi River tucked inside the dense tropical evergreen forests of Jamboti.\n` +
-      `   • Excellent for nature treks and adventure enthusiasts.\n\n` +
-      `4. **Tillari Falls & Dam** *(~45 km from Belagavi)*\n` +
-      `   • Situated on the Karnataka-Maharashtra border with misty viewpoints, deep valleys, and lush forested slopes.\n\n` +
-      `5. **Dudhsagar Falls** *(~105 km via Castle Rock / Kulem)*\n` +
-      `   • A world-renowned 4-tiered giant (310m tall) on the Karnataka-Goa border. Easily accessible as a day trip from Belagavi via rail or trekking.\n\n` +
-      `📅 **Best Time to Visit:** **July to November** (during and immediately post-monsoon), when the rivers are in full flow.\n` +
-      `💡 **Travel Tip:** Rent a private cab or self-drive vehicle from Belagavi, and wear sturdy footwear with good grip.`;
-  }
-
-  // 3. CONTEXTUAL FOLLOW-UP: MAKE TRIP CHEAPER / BUDGET OPTIMIZATION
-  if (
-    qLower.includes('cheaper') ||
-    qLower.includes('reduce cost') ||
-    qLower.includes('lower the budget') ||
-    qLower.includes('on a budget') ||
-    qLower.includes('save money') ||
-    qLower.includes('make that trip cheaper') ||
-    (qLower.includes('follow-up') && qLower.includes('cheap'))
-  ) {
-    const isKerala = conversationText.includes('kerala');
-    const isGoa = conversationText.includes('goa');
-
-    if (isKerala) {
-      return `💰 **How to Make Your Kerala Trip Much Cheaper (Budget Travel Hacks)**\n\n` +
-        `Here is how you can cut your Kerala travel expenses by **40% to 60%** without missing any iconic experiences:\n\n` +
-        `1. **Transport Savings (Save ₹4,000–₹8,000):**\n` +
-        `   • Instead of private taxis (₹2,500–₹3,500/day), travel between Kochi, Alleppey, and Trivandrum via **Indian Railways trains** (Second Seating / Sleeper ₹50–₹180).\n` +
-        `   • Use state **KSRTC Fast Passenger buses** for scenic mountain rides to Munnar (₹120–₹160 from Kochi).\n\n` +
-        `2. **Houseboat Alternative (Save ₹6,000–₹12,000):**\n` +
-        `   • Private overnight houseboats cost ₹8,000–₹16,000.\n` +
-        `   • **Budget Smart Move:** Take the **Government SWTD Public Ferry** from Alleppey to Kottayam (only **₹25 to ₹40** for 2.5 hours through the exact same backwater canals!) or hire a shared motorized Shikara boat for **₹600–₹800/hour** for 2–3 people.\n\n` +
-        `3. **Accommodation (Save ₹1,500–₹3,000/night):**\n` +
-        `   • Stay in authentic registered Kerala Homestays or backpacker hostels (Zostel Kochi/Alleppey) for **₹600–₹1,200/night** including homemade breakfast.\n\n` +
-        `4. **Dining (Save ₹800/day):**\n` +
-        `   • Eat traditional Kerala Sadya / Thali meals served on banana leaves at local Udupi or Indian Coffee Houses (only **₹80–₹130 per person**).\n\n` +
-        `💵 **Estimated Daily Budget:** **₹1,200 – ₹1,800 per person/day** (All-inclusive).`;
-    }
-
-    if (isGoa) {
-      return `💰 **How to Make Your Goa Trip Much Cheaper**\n\n` +
-        `Here is a budget-smart strategy to keep your Goa trip under **₹1,500/day**:\n\n` +
-        `1. **Transport:** Rent a scooter (Activa) for **₹300–₹450/day** instead of taking expensive tourist taxis (which charge ₹1,200–₹2,000 per trip).\n` +
-        `2. **Stay:** Choose hostels (Zostel, The Hosteller) or budget guesthouses in Anjuna/Arambol/Colva for **₹500–₹900/night**.\n` +
-        `3. **Food:** Eat delicious Goan fish thali and local street eats at roadside eateries for **₹120–₹180** instead of beachfront luxury beach clubs.\n` +
-        `4. **Free Attractions:** Beaches, sunsets, Chapora Fort, and Panaji’s Latin Quarter (Fontainhas) are 100% free to enjoy!`;
-    }
-
-    return `💰 **Actionable Ways to Make Your Trip More Budget-Friendly:**\n\n` +
-      `1. **Off-Peak Travel:** Travel during the shoulder season for 30%–50% cheaper stays and flights.\n` +
-      `2. **Local Transit:** Use trains and public buses rather than private car hires.\n` +
-      `3. **Accommodations:** Look for homestays, guesthouses, or boutique hostels.\n` +
-      `4. **Authentic Dining:** Eat where the locals eat—you get fresher, more authentic regional flavors at a fraction of tourist resort prices.\n\n` +
-      `Which destination should we tailor this budget plan for?`;
-  }
-
-  // 4. KERALA BEST TIME TO VISIT
-  if (qLower.includes('kerala') && (qLower.includes('best time') || qLower.includes('when to visit') || qLower.includes('season'))) {
-    return `🌴 **Best Time to Visit Kerala ("God's Own Country")**\n\n` +
-      `The ideal time depends on the kind of experience you are seeking:\n\n` +
-      `⭐ **1. Peak Season (September to March) — Ideal for Sightseeing**\n` +
-      `• **Weather:** Pleasant, sunny, and comfortable (23°C to 30°C).\n` +
-      `• **Best for:** Alleppey backwater cruises, misty tea gardens of Munnar, beach sunsets in Varkala, and wildlife safaris in Periyar (Thekkady).\n` +
-      `• **Bonus:** Experience major cultural festivals including **Onam** (August/September) and traditional temple celebrations.\n\n` +
-      `🌧️ **2. Monsoon Season (June to August) — Best for Ayurveda & Greenery**\n` +
-      `• **Weather:** Heavy tropical rains, lush vibrant landscapes, overflowing waterfalls.\n` +
-      `• **Best for:** Traditional **Ayurvedic rejuvenation treatments** (the cool, moist monsoon climate opens skin pores), and budget travelers wanting steep hotel discounts.\n\n` +
-      `☀️ **3. Summer Season (April to May) — Hill Station Getaways**\n` +
-      `• **Weather:** Warm and humid in coastal plains (32°C–36°C), but cool in the Western Ghat hill stations.\n` +
-      `• **Best for:** Munnar, Wayanad, and Vagamon, escaping the city heat.\n\n` +
-      `💡 **Quick Recommendation:** If it's your first visit, aim for **November to February** for the most pleasant weather!`;
-  }
-
-  // 5. 3-DAY GOA TRIP ITINERARY
-  if (qLower.includes('goa') && (qLower.includes('3-day') || qLower.includes('3 day') || qLower.includes('itinerary') || qLower.includes('plan'))) {
-    return `🏖️ **Custom 3-Day Goa Itinerary (Coastal Charm & Culture)**\n\n` +
-      `Here is a balanced, high-value 3-day itinerary covering vibrant North Goa beaches, Portuguese heritage, and serene coastal beauty:\n\n` +
-      `📍 **Day 1: Vibrant North Goa & Sunsets**\n` +
-      `• **Morning:** Arrive, check into your stay, and explore the 17th-century **Fort Aguada** overlooking the Arabian Sea.\n` +
-      `• **Afternoon:** Relax at Candolim or Calangute beach; grab fresh Goan seafood or beachside snacks.\n` +
-      `• **Evening:** Sunset at **Anjuna** or Vagator Beach; enjoy lively beach shack music and seaside dinner (try Goan Fish Curry and Prawn Balchão).\n\n` +
-      `📍 **Day 2: Portuguese Heritage & River Cruise**\n` +
-      `• **Morning:** Discover UNESCO World Heritage sites in **Old Goa**—the magnificent Basilica of Bom Jesus and Se Cathedral.\n` +
-      `• **Afternoon:** Stroll through the colorful Portuguese Latin Quarter of **Fontainhas** in Panaji; sample freshly baked Poee and Bebinca at a heritage café.\n` +
-      `• **Evening:** Sunset leisure cruise on the **Mandovi River** with traditional folk music and dance.\n\n` +
-      `📍 **Day 3: Serene South Goa or Water Sports**\n` +
-      `• **Morning:** Head to South Goa for tranquil crescent bays like **Palolem** or Benaulim Beach.\n` +
-      `• **Afternoon:** Kayaking or boat ride to Butterfly Beach; visit the clifftop ruins of **Cabo de Rama Fort**.\n` +
-      `• **Evening:** Sunset dinner at a tranquil beach shack before heading home.\n\n` +
-      `💰 **Estimated Budget (per person in INR):**\n` +
-      `• **Budget traveler:** ₹4,500 – ₹7,000 (Hostels, scooter rental, local shacks)\n` +
-      `• **Mid-range:** ₹11,000 – ₹18,000 (3-star boutique resorts, private transport, dining)\n` +
-      `• **Luxury:** ₹25,000+ (5-star beachfront luxury resorts & fine dining)\n\n` +
-      `🛵 **Transport:** Rent a scooter for **₹350–₹500/day** for maximum flexibility!`;
-  }
-
-  // 6. EXPLAIN ARTIFICIAL INTELLIGENCE
-  if (
-    qLower.includes('artificial intelligence') ||
-    (qLower.includes('what is ai') && !qLower.includes('air')) ||
-    qLower.includes('explain ai')
-  ) {
-    return `🤖 **Understanding Artificial Intelligence (AI)**\n\n` +
-      `**Artificial Intelligence (AI)** refers to the field of computer science dedicated to creating software and systems capable of performing tasks that typically require human intelligence.\n\n` +
-      `### Core Pillars of AI:\n` +
-      `1. **Machine Learning (ML):** Algorithms that learn patterns from large amounts of data without being explicitly programmed with strict rulebooks.\n` +
-      `2. **Deep Learning (DL):** Neural networks with multiple layers inspired by the human brain that excel at complex recognition tasks (like voice and image processing).\n` +
-      `3. **Natural Language Processing (NLP):** Enables computers to understand, interpret, and generate human language (powers chatbots, translation, and search engines).\n` +
-      `4. **Computer Vision:** Enables machines to identify and analyze visual inputs like images and videos (powers autonomous vehicles, facial recognition, and medical imaging).\n\n` +
-      `### How Modern AI Works:\n` +
-      `Rather than hardcoding answers, modern AI models (like Large Language Models) analyze billions of parameters to understand context, predict probable relationships, and formulate intelligent solutions.\n\n` +
-      `### Key Types of AI:\n` +
-      `• **Narrow AI (Weak AI):** Specialized in specific domains (e.g. ChatGPT, recommendation engines, chess software). This is the only type that exists today.\n` +
-      `• **General AI (AGI):** Hypothetical future AI that possesses human-level reasoning across all cognitive domains.\n\n` +
-      `AI is transforming healthcare, scientific research, automation, travel planning, and software development!`;
-  }
-
-  // 7. WRITE A SIMPLE PYTHON PROGRAM
-  if (
-    qLower.includes('python program') ||
-    qLower.includes('write python') ||
-    qLower.includes('simple python') ||
-    (qLower.includes('code') && qLower.includes('python'))
-  ) {
-    return `🐍 **Simple & Useful Python Program: Currency & Travel Expense Calculator**\n\n` +
-      `Here is a clean, beginner-friendly Python program that calculates daily travel expenses and converts between currencies:\n\n` +
-      `\`\`\`python\n` +
-      `# Wayvora Travel Expense Calculator\n` +
-      `def calculate_trip_budget(destination, days, daily_cost_inr):\n` +
-      `    total_inr = days * daily_cost_inr\n` +
-      `    usd_rate = 86.50  # 1 USD ≈ 86.50 INR\n` +
-      `    total_usd = total_inr / usd_rate\n` +
-      `    \n` +
-      `    print(f"\\n--- Estimated Budget for {destination} ---")\n` +
-      `    print(f"Duration: {days} days")\n` +
-      `    print(f"Daily Spend: ₹{daily_cost_inr:,.2f}")\n` +
-      `    print(f"Total Cost: ₹{total_inr:,.2f} (~$\\{total_usd:.2f} USD)")\n` +
-      `    \n` +
-      `    if total_inr < 15000:\n` +
-      `        print("Category: Budget-Friendly Explorer 🎒")\n` +
-      `    elif total_inr < 40000:\n` +
-      `        print("Category: Comfortable Mid-Range 🏖️")\n` +
-      `    else:\n` +
-      `        print("Category: Luxury Escape ✨")\n\n` +
-      `# Test the function\n` +
-      `destination = "Goa, India"\n` +
-      `days = 3\n` +
-      `daily_cost = 2500  # ₹2,500 per day\n` +
-      `calculate_trip_budget(destination, days, daily_cost)\n` +
-      `\`\`\`\n\n` +
-      `### How to Run This:\n` +
-      `1. Save the code into a file named \`trip_calc.py\`.\n` +
-      `2. Open your terminal or command prompt and run:\n` +
-      `   \`\`\`bash\n` +
-      `   python trip_calc.py\n` +
-      `   \`\`\`\n` +
-      `3. **Sample Output:**\n` +
-      `   \`\`\`text\n` +
-      `   --- Estimated Budget for Goa, India ---\n` +
-      `   Duration: 3 days\n` +
-      `   Daily Spend: ₹2,500.00\n` +
-      `   Total Cost: ₹7,500.00 (~$86.71 USD)\n` +
-      `   Category: Budget-Friendly Explorer 🎒\n` +
-      `   \`\`\``;
-  }
-
-  // 8. CURRENCY CONVERSION & EXCHANGE RATES
-  if (
-    qLower.includes('convert') ||
-    qLower.includes('exchange rate') ||
-    (qLower.includes('how much is') && (qLower.includes('usd') || qLower.includes('inr') || qLower.includes('eur') || qLower.includes('jpy') || qLower.includes('gbp')))
-  ) {
-    return `💱 **Wayvora Worldwide Currency Conversion & Travel Estimates**\n\n` +
-      `Here are current benchmark exchange rates for top travel destinations:\n\n` +
-      `• **1 USD ($)** ≈ **₹86.50 INR** | **€0.92 EUR** | **£0.79 GBP** | **¥153 JPY** | **1.52 AUD** | **3.67 AED**\n` +
-      `• **1 EUR (€)** ≈ **₹94.02 INR** | **$1.087 USD** | **£0.859 GBP** | **¥166.3 JPY**\n` +
-      `• **1 GBP (£)** ≈ **₹109.50 INR** | **$1.266 USD** | **€1.165 EUR** | **¥193.7 JPY**\n` +
-      `• **10,000 JPY (¥)** ≈ **₹5,654 INR** | **$65.36 USD** | **€60.13 EUR**\n\n` +
-      `💡 **Traveler Tip:** You can also change the display currency anytime using the **Currency Selector** dropdown in the top navigation bar! It automatically converts all destination cards and modal budgets across the platform.`;
-  }
-
-  // 9. TOKYO, JAPAN TRAVEL PLANNING (Native JPY ¥)
-  if (qLower.includes('tokyo') || (qLower.includes('japan') && (qLower.includes('trip') || qLower.includes('plan') || qLower.includes('itinerary')))) {
-    return `🗼 **Tokyo, Japan Travel Itinerary & Native Budget Breakdown (JPY ¥)**\n\n` +
-      `Tokyo seamlessly weaves futuristic neon skylines with serene centuries-old Shinto shrines and world-class culinary art:\n\n` +
-      `📍 **Highlights & Activities:**\n` +
-      `• **Sensō-ji Temple & Asakusa:** Tokyo's oldest temple with vibrant Nakamise shopping street.\n` +
-      `• **Shibuya Crossing & Harajuku:** Experience the world's busiest pedestrian crossing and Takeshita Street fashion.\n` +
-      `• **teamLab Planets:** Spectacular immersive digital art museum in Toyosu.\n` +
-      `• **Tsukiji Outer Market:** Authentic fresh sushi, tamagoyaki, and wagyu skewers.\n\n` +
-      `💰 **Daily Budget Breakdown per person (in Japanese Yen ¥):**\n` +
-      `• **Accommodation (Mid-range hotel):** ¥12,000 – ¥18,000 / night\n` +
-      `• **Food & Dining:** ¥4,000 – ¥7,000 / day (Ramen from ¥900, sushi sets from ¥1,800)\n` +
-      `• **Local Transit (Tokyo Metro / Suica):** ¥1,200 – ¥2,000 / day\n` +
-      `• **Sightseeing & Admission:** ¥2,500 – ¥5,000 / day\n\n` +
-      `💴 **Total Estimated Daily Budget:** **¥22,000 JPY / person** (~$144 USD / ₹12,450 INR).\n\n` +
-      `Would you like me to construct a 4-day or 7-day day-by-day itinerary for Tokyo?`;
-  }
-
-  // 10. PARIS, FRANCE TRAVEL PLANNING (Native EUR €)
-  if (qLower.includes('paris') || (qLower.includes('france') && (qLower.includes('trip') || qLower.includes('plan') || qLower.includes('itinerary')))) {
-    return `🥐 **Paris, France Travel Itinerary & Native Budget Breakdown (EUR €)**\n\n` +
-      `The City of Light captivates travelers with monumental architecture, timeless art, and unmatched café culture:\n\n` +
-      `📍 **Iconic Experiences:**\n` +
-      `• **Eiffel Tower & Champ de Mars:** Sunset vistas and sparkling light show from the Trocadéro.\n` +
-      `• **Louvre Museum & Tuileries Garden:** Home of the Mona Lisa and the Venus de Milo.\n` +
-      `• **Montmartre & Sacré-Cœur:** Cobblestone alleys, bohemian painters' squares, and hilltop views.\n` +
-      `• **Seine River Cruise:** Romantic twilight boat voyage past historic bridges and Notre-Dame.\n\n` +
-      `💰 **Daily Budget Breakdown per person (in Euros €):**\n` +
-      `• **Accommodation (Boutique hotel / apartment):** €75 – €130 / night\n` +
-      `• **Food & Dining (Bistros & bakeries):** €35 – €60 / day\n` +
-      `• **Local Transit (Metro / Navigo):** €8 – €15 / day\n` +
-      `• **Museum Passes & Attractions:** €20 – €40 / day\n\n` +
-      `💶 **Total Estimated Daily Budget:** **€150 EUR / person** (~$163 USD / ₹14,100 INR).\n\n` +
-      `Would you like tips on skipping lines with the Paris Museum Pass or romantic dining spots?`;
-  }
-
-  // 11. GREETING INTENT
-  if (
-    qLower.includes('hello') ||
-    qLower.includes('how are you') ||
-    qLower.includes('hi ') ||
-    qLower === 'hi' ||
-    qLower.includes('hey') ||
-    qLower.includes('good morning') ||
-    qLower.includes('good evening')
-  ) {
-    return `Hello! 👋 I'm doing great, thank you for asking! How are you doing today?\n\n` +
-      `I'm your **Wayvora AI Assistant**—I'm here to help you with worldwide travel planning, customized itineraries, live weather, or answering any general questions about technology, programming, or everyday topics. What's on your mind?`;
-  }
-
-  // 9. GENERAL TRAVEL PLANNING (Worldwide)
-  if (qLower.includes('trip') || qLower.includes('itinerary') || qLower.includes('vacation') || qLower.includes('travel to')) {
-    return `I'd love to help you design an unforgettable journey! ✨\n\n` +
-      `To tailor this for you:\n` +
-      `1. **Destination:** Which city, state, or country are you considering? (Every destination worldwide is supported!)\n` +
-      `2. **Duration:** How many days are you planning for?\n` +
-      `3. **Travel Style:** Solo, couple, family, friends, or adventure?\n` +
-      `4. **Budget:** What's your target budget (in ₹ or your local currency)?\n\n` +
-      `Tell me a little more, and I'll generate a complete day-by-day plan with attractions, food, and timing!`;
-  }
-
-  // 10. DEFAULT CONVERSATIONAL RESPONSE
-  return `That's an interesting question! I am happy to help you explore this.\n\n` +
-    `Could you clarify a little more detail so I can give you the most accurate and helpful response? Whether you're looking for travel advice, technical explanations, or general recommendations, I'm here to assist!`;
 }
-
 /**
  * Process a chat conversation with Gemini, OpenAI, or the built-in Intelligent Engine
  */
@@ -655,12 +368,28 @@ async function processChatRequest(messages, context = {}) {
   const geminiKey = process.env.GEMINI_API_KEY || (aiConfig && aiConfig.apiKey && !aiConfig.apiKey.includes('YOUR_') ? aiConfig.apiKey : null);
   const openAiKey = process.env.OPENAI_API_KEY;
 
-  const systemPrompt = `You are Wayvora AI Travel Concierge & Intelligent Assistant. You are a versatile, polite, and highly knowledgeable AI assistant.
-Guidelines:
-1. Answer general conversation, greetings, programming questions, and technology inquiries naturally and accurately. Do not force every query into a travel itinerary.
-2. For worldwide travel planning, support all destinations worldwide (India, USA, UK, Japan, Europe, Australia, UAE, Switzerland, Indonesia, etc.). CRUCIAL: Do not show US dollars for every destination by default. Display travel costs and pricing in the appropriate native currency for each destination (e.g., INR ₹ for India, USD $ for USA, GBP £ for UK, JPY ¥ for Japan, EUR € for France/Italy/Greece/Eurozone, CHF for Switzerland, AED for UAE, AUD A$ for Australia, IDR Rp for Indonesia/Bali). When users request conversions, convert accurately using realistic exchange rates. Provide clear itemized breakdowns for accommodation, food, transportation, and activities, and evaluate affordability against user budget and traveler count.
-3. Maintain conversation context and answer follow-up questions accurately.
-4. For live weather, use verified data or clearly explain current seasonal conditions.`;
+  const systemPrompt = `You are Wayvora AI Travel Assistant & Intelligent Concierge, an advanced, highly conversational, and friendly AI assistant powered by the Wayvora travel platform.
+
+CORE PERSONALITY & BEHAVIOUR (ChatGPT-Like):
+1. Conversational & Empathetic: Speak naturally, warmly, intelligently, and helpfully—just like ChatGPT. Never sound like a rigid questionnaire or customer service form.
+2. Natural Language Tolerance: Understand any broken English, spelling mistakes, typos, slang, abbreviations, and informal or incomplete sentences (e.g., "I want go Goa 3 days", "suggest cheap trip for family", "I have 10000 rupees where can I go?", "I want cold place with snow", "Plan something for me and my friends"). NEVER correct or criticize user grammar or spelling. Understand their true intent effortlessly.
+3. Multilingual Fluency:
+   - Fluent in English, Kannada (ಕನ್ನಡ), Hindi (हिंदी), Hinglish (Hindi in Roman script, e.g., "mujhe 3 din ka sasta trip chahiye"), and Kanglish (Kannada in Roman script, e.g., "nange Goa trip plan madi", "nan friends jothe trip hogbeku").
+   - Automatically detect the user's language and reply in the EXACT SAME language and script/style. If they switch languages, seamlessly switch with them.
+4. Smart Clarification (Max ONE Question):
+   - If a request is vague (e.g., "Plan a trip for me"), understand the intent and ask only ONE simple, warm follow-up question (e.g., "I'd love to help! Do you already have a destination in mind, or would you like me to recommend some great places based on your budget?").
+   - If enough information is provided (e.g., "I want go Goa 3 days"), DO NOT interrogate the user! Start helping immediately with a rich, day-wise plan.
+5. Context Awareness & Multi-Turn Memory:
+   - Remember all previous context in this conversation (destination, days, budget, travel companions).
+   - Handle follow-ups intelligently without asking the user to repeat info (e.g., if discussing Kerala and user says "Make it cheaper", adjust that same Kerala trip with budget transit, homestays, and affordable food; if user says "4 days", adjust the duration; if user says "What about food?", suggest local cuisine).
+6. Practical Recommendations & Accurate Budgets:
+   - Consider destination, days, budget in Indian Rupees (₹ INR) for Indian destinations or appropriate local/converted currency, travelers, style (solo, couple, family, friends), weather, and activities.
+   - Provide realistic, itemized breakdowns (stay, transport, dining, sightseeing) and explain why the destination fits.
+   - Distinguish realistic estimates from verified prices; never claim to have booked tickets or made hotel reservations.
+7. Wayvora Integration:
+   - Mention Wayvora features organically when helpful: the interactive Day-by-Day Trip Planner tab, ☀️ Live Weather tool, Multi-Currency Converter, and the India Travel Hub (64 Places).
+8. Non-Travel & General Queries:
+   - If user asks general questions (coding, science, technology, greetings, culture), answer naturally and accurately without forcing travel into it.`;
 
   let replyText = null;
   let providerUsed = 'built-in';
@@ -789,6 +518,21 @@ const server = http.createServer(async (req, res) => {
   // -------------------------------------------------------------
   let reqPath = pathname;
   if (reqPath === '/') reqPath = '/index.html';
+
+  // Security guard: Strictly block access to administrative scripts, service keys, and environment files
+  const lowerReqPath = reqPath.toLowerCase();
+  if (
+    lowerReqPath.startsWith('/scripts') ||
+    lowerReqPath.startsWith('/secrets') ||
+    lowerReqPath.includes('serviceaccount') ||
+    lowerReqPath.includes('credentials') ||
+    lowerReqPath.endsWith('.key.json') ||
+    lowerReqPath.includes('.env')
+  ) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('403 Forbidden: Access to administrative credentials and private scripts is denied.');
+    return;
+  }
 
   const filePath = path.join(PUBLIC_DIR, reqPath);
   const ext = path.extname(filePath).toLowerCase();

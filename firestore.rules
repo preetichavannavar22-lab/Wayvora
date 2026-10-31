@@ -1,18 +1,176 @@
 rules_version = '2';
+
+/**
+ * Cloud Firestore Production Security Rules for WAYVORA
+ * Project: wayvora-96c3d
+ * 
+ * Official Administrator UID: MXMCpQFfM7Zyp865ljTXiasFB2M2
+ * 
+ * Security Architecture:
+ * 1. Administrator Privileges: The administrator (validated via custom claim
+ *    'admin == true' OR authorized UID 'MXMCpQFfM7Zyp865ljTXiasFB2M2') has full
+ *    read/write/reply management access over all customer support inquiries.
+ * 2. Customer Ticket Isolation: Regular travelers can ONLY read their own submitted
+ *    tickets and official administrator replies. They cannot see other customers' tickets.
+ * 3. User Data Isolation: Users can ONLY read, create, update, and delete their own
+ *    profile, favorites, and trip plans. Ownership fields ('uid', 'userId') are immutable.
+ *    Subcollections (trips, favorites) have specific, non-overlapping owner-only rules.
+ * 4. Public Destinations Catalog: Publicly readable for all travelers; writes are restricted to Admin.
+ * 5. Default Deny: All unspecified paths and collections are strictly blocked.
+ */
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // User profile and favorites: only authenticated user can read & write their own doc
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // =======================================================================
+    // Helper Functions
+    // =======================================================================
 
-      // Saved trips subcollection: only authenticated user can read & write their own trips
+    // Checks if the user has an active authenticated session
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Checks if the caller is the owner of the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Checks if the caller is the official WAYVORA administrator
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.uid == "MXMCpQFfM7Zyp865ljTXiasFB2M2"
+      );
+    }
+
+    // Validates that profile creation preserves ownership integrity
+    function validUserCreate(userId) {
+      return isOwner(userId)
+        && request.resource.data.get('uid', userId) == userId;
+    }
+
+    // Validates that profile updates do not alter the immutable owner UID
+    function validUserUpdate(userId) {
+      return isOwner(userId)
+        && request.resource.data.get('uid', resource.data.uid) == resource.data.uid;
+    }
+
+    // Validates that trip creation associates with the correct owner UID
+    function validTripCreate(userId) {
+      return isOwner(userId)
+        && request.resource.data.get('userId', userId) == userId;
+    }
+
+    // Validates that trip updates cannot transfer ownership to another user
+    function validTripUpdate(userId) {
+      return isOwner(userId)
+        && request.resource.data.get('userId', resource.data.get('userId', userId)) == resource.data.get('userId', userId);
+    }
+
+    // Validates incoming customer support / contact form inquiries
+    function validSupportRequest() {
+      let data = request.resource.data;
+      return data.get('name', '') is string 
+          && data.get('name', '').size() > 0 
+          && data.get('name', '').size() <= 100
+          && data.get('email', '') is string 
+          && data.get('email', '').size() >= 3 
+          && data.get('email', '').size() <= 150
+          && data.get('message', '') is string 
+          && data.get('message', '').size() > 0 
+          && data.get('message', '').size() <= 5000
+          && (
+            isAuthenticated()
+              ? ('userId' in data && data.userId == request.auth.uid)
+              : !('userId' in data)
+          );
+    }
+
+    // =======================================================================
+    // 1. User Profiles & Favorites Collection (/users/{userId})
+    // =======================================================================
+    match /users/{userId} {
+      // Account owner or official administrator can view user profile
+      allow get, list: if isOwner(userId) || isAdmin();
+
+      // Creation requires authenticated owner matching userId with immutable uid
+      allow create: if validUserCreate(userId);
+
+      // Updates require owner and cannot alter the owner uid
+      allow update: if validUserUpdate(userId);
+
+      // Deletion restricted to owner or administrator
+      allow delete: if isOwner(userId) || isAdmin();
+
+      // =====================================================================
+      // 2. User Trip Itineraries Subcollection (/users/{userId}/trips/{tripId})
+      // =====================================================================
       match /trips/{tripId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        // Authenticated owner or administrator can view trips
+        allow get, list: if isOwner(userId) || isAdmin();
+        allow create: if validTripCreate(userId);
+        allow update: if validTripUpdate(userId);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      // =====================================================================
+      // 3. User Saved Favorites Subcollections
+      // Specific owner-only rules for favorites subcollection paths
+      // (/users/{userId}/favorites/{favId} and /users/{userId}/favourites/{favId})
+      // =====================================================================
+      match /favorites/{favoriteId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /favourites/{favoriteId} {
+        allow read, write: if isOwner(userId);
       }
     }
 
-    // Default deny for all other collections
+    // =======================================================================
+    // 4. Support & Contact Inquiries (/support_requests/{requestId})
+    // =======================================================================
+    match /support_requests/{requestId} {
+      // Anyone (guest or authenticated) can submit a valid support request
+      allow create: if validSupportRequest();
+
+      // Administrator can view ALL tickets; customers can ONLY view their own tickets
+      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.get('userId', '') == request.auth.uid);
+
+      // Only official administrators can update status or append official replies
+      allow update: if isAdmin();
+
+      // Only official administrators can delete or archive inquiries
+      allow delete: if isAdmin();
+    }
+
+    match /contact_messages/{messageId} {
+      allow create: if validSupportRequest();
+      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.get('userId', '') == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // =======================================================================
+    // 5. Public Destinations Catalog (/destinations/{destId})
+    // =======================================================================
+    match /destinations/{destId} {
+      // Publicly readable for all travelers and unauthenticated visitors
+      allow read: if true;
+
+      // Only administrators can edit destinations
+      allow write: if isAdmin();
+    }
+
+    match /india_destinations/{destId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // =======================================================================
+    // 6. Default Deny
+    // Strictly block access to any other collections or top-level paths
+    // =======================================================================
     match /{document=**} {
       allow read, write: if false;
     }

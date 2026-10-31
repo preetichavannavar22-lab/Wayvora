@@ -103,6 +103,9 @@
                 <span id="mobile-user-email">user@example.com</span>
               </div>
             </div>
+            <button class="btn btn-block btn-sm mt-2" id="mobile-admin-dashboard-btn" style="display: none; background: #0284c7; color: #fff; font-weight: 700;">
+              🛡️ Developer Admin Dashboard
+            </button>
             <button class="btn btn-outline-danger btn-block btn-sm mt-2" id="btn-user-logout-mobile">
               Sign Out
             </button>
@@ -137,6 +140,11 @@
             <span class="converter-text">Converter</span>
           </button>
         </div>
+
+        <!-- Developer Admin Portal Quick-Action (Visible only to authenticated Admin) -->
+        <button type="button" class="btn btn-outline btn-sm" id="nav-admin-dashboard-btn" style="display: none; border-color: #38bdf8; color: #38bdf8; font-weight: 700; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; border-radius: 9999px;" title="Developer Admin Portal">
+          <span>🛡️</span> Admin Portal
+        </button>
 
         <!-- Desktop Auth Section -->
         <div class="desktop-auth-container" id="desktop-auth-container">
@@ -179,6 +187,10 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
                 <span>Saved Favourites</span>
               </a>
+              <button type="button" class="profile-dropdown-item text-primary" id="user-menu-admin-item" style="display: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <span>Developer Admin Portal</span>
+              </button>
               <div class="dropdown-divider"></div>
               <button class="profile-dropdown-item btn-signout-item" id="btn-user-logout">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -1079,6 +1091,40 @@
               </div>
             </div>
           </div>
+
+          <!-- My Submitted Inquiries (Customer Ticket Tracking) -->
+          <div class="customer-inquiries-card mt-4" id="customer-inquiries-card">
+            <div class="d-flex align-items-center justify-content-between mb-3" style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <h3 class="font-bold text-lg mb-1" style="font-size: 1.15rem; font-weight: 700;">My Submitted Inquiries</h3>
+                <p class="text-sm text-muted" style="font-size: 0.85rem; color: #64748b; margin: 0;">
+                  Track your support requests and read official replies from the WAYVORA team.
+                </p>
+              </div>
+              <span class="badge" id="customer-inquiries-count" style="background: rgba(56, 189, 248, 0.15); color: #0284c7; padding: 0.25rem 0.65rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem;">
+                0 Tickets
+              </span>
+            </div>
+
+            <!-- State: Unauthenticated -->
+            <div id="customer-inquiries-unauth" style="text-align: center; padding: 2rem 1rem; background: var(--bg-subtle, #f8fafc); border-radius: 8px;">
+              <p class="text-sm text-muted mb-3" style="font-size: 0.9rem; color: #64748b;">
+                Sign in with your traveler account to track your submitted support requests and administrator responses in real time.
+              </p>
+              <button type="button" class="btn btn-outline btn-sm" id="customer-inquiries-login-btn">
+                Sign In to View My Tickets
+              </button>
+            </div>
+
+            <!-- State: Authenticated -->
+            <div id="customer-inquiries-auth" style="display: none;">
+              <div id="customer-inquiries-list">
+                <p class="text-sm text-muted text-center py-3" style="font-size: 0.9rem; color: #64748b; text-align: center; padding: 1.5rem 0;">
+                  No submitted inquiries found for your account.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- TAB 7: ABOUT THE DEVELOPER -->
@@ -1094,10 +1140,10 @@
               <div class="developer-photo-col">
                 <div class="developer-photo-frame">
                   <img
-                    src="images/preeti-profile.jpg"
+                    src="images/developer-photo.jpg"
                     alt="Preeti Chavvannavar - Creator & Developer of WAYVORA"
                     class="developer-photo"
-                    onerror="this.onerror=null; this.src='images/preeti-profile.jpg.jpeg';"
+                    onerror="this.onerror=null; this.src='images/developer-photo.jpg.jpeg';"
                     loading="lazy"
                   />
                 </div>
@@ -1205,13 +1251,6 @@
 
       <div class="footer-bottom">
         <p>&copy; 2026 Wayvora. Designed for world explorers.</p>
-        <div class="footer-legal-links">
-          <a href="#about-privacy" class="footer-about-link" data-about-tab="privacy">Privacy Policy</a>
-          <span class="footer-dot">•</span>
-          <a href="#about-contact" class="footer-about-link" data-about-tab="contact">Contact & Support</a>
-          <span class="footer-dot">•</span>
-          <a href="#about-tips" class="footer-about-link" data-about-tab="tips">Travel Tips</a>
-        </div>
       </div>
     </div>
   </footer>
@@ -1225,12 +1264,15 @@
 
   <!-- Application Modules -->
   <script src="js/firebase-config.js"></script>
+  <script src="js/firestore-service.js"></script>
   <script src="js/auth.js"></script>
+  <script src="js/admin-dashboard.js"></script>
   <script src="js/currency.js"></script>
   <script src="js/data.js"></script>
   <script src="js/india-data.js"></script>
   <script src="js/state.js"></script>
   <script src="js/weather.js"></script>
+  <script src="js/ai-engine.js"></script>
   <script src="js/chatbot.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/planner.js"></script>

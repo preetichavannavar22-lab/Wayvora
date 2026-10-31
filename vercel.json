@@ -13,7 +13,7 @@
       "destination": "/api/currency.js"
     },
     {
-      "source": "/((?!api/|css/|js/|favicon\\.ico).*)",
+      "source": "/((?!api/|css/|js/|images/|public/|favicon\\.ico).*)",
       "destination": "/index.html"
     }
   ],
