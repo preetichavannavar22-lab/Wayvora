@@ -2,5 +2,5 @@
   "provider": "gemini",
   "apiKey": "YOUR_GEMINI_API_KEY_HERE",
   "model": "gemini-1.5-flash",
-  "instructions": "To use Google Gemini, get your API key from https://aistudio.google.com/ and replace YOUR_GEMINI_API_KEY_HERE, or set the GEMINI_API_KEY / OPENAI_API_KEY environment variable. If no key is set, the built-in Intelligent AI Engine handles queries, live weather, and conversation context."
+  "instructions": "To use Google Gemini or OpenAI, configure GEMINI_API_KEY / OPENAI_API_KEY environment variables or specify apiKey above. If no external key is configured, Wayvora's built-in Intelligent AI Engine autonomously processes general-purpose queries (Computer Science, Cybersecurity, AI, Math, English Vocabulary, Kannada/Hindi Translations, Writing, Career) as well as full-featured travel planning."
 }
