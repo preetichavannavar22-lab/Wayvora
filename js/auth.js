@@ -6,6 +6,9 @@
 
 const AuthService = {
   currentUser: null,
+  isAdmin: false,
+  adminUid: "MXMCpQFfM7Zyp865ljTXiasFB2M2",
+  adminEmail: "wayvora.admin@gmail.com",
   firebaseActive: false,
   firebaseApp: null,
   firebaseAuth: null,
@@ -24,7 +27,7 @@ const AuthService = {
   },
 
   /**
-   * Attempt to initialize Firebase SDK if configured.
+   * Reuses the existing single Firebase Authentication and Cloud Firestore connection.
    */
   initFirebase() {
     const isConfigured = window.isFirebaseConfigured ? window.isFirebaseConfigured() : false;
@@ -32,40 +35,68 @@ const AuthService = {
 
     if (hasSdk && isConfigured) {
       try {
-        this.firebaseApp = window.firebaseApp || (!firebase.apps.length ? firebase.initializeApp(window.FIREBASE_CONFIG) : firebase.app());
-        this.firebaseAuth = window.firebaseAuth || (firebase.auth ? firebase.auth() : null);
-        this.firestore = window.firestore || (firebase.firestore ? firebase.firestore() : null);
+        // Reuse the single Firebase instance initialized in firebase-config.js
+        const instances = (typeof window.initFirebase === "function") ? window.initFirebase() : null;
+        this.firebaseApp = window.firebaseApp || (instances ? instances.app : (firebase.apps && firebase.apps.length ? firebase.app() : null));
+        this.firebaseAuth = window.firebaseAuth || (instances ? instances.auth : (firebase.auth ? firebase.auth() : null));
+        this.firestore = window.firestore || (instances ? instances.firestore : (firebase.firestore ? firebase.firestore() : null));
 
-        window.firebaseApp = this.firebaseApp;
-        window.firebaseAuth = this.firebaseAuth;
-        window.firestore = this.firestore;
+        if (this.firebaseApp && this.firebaseAuth) {
+          this.firebaseActive = true;
+          console.log("AuthService: Reusing existing Firebase Auth & Cloud Firestore connection.");
 
-        if (firebase.analytics && window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.measurementId) {
-          try { firebase.analytics(); } catch (e) { /* optional analytics */ }
+          // Subscribe to live Firebase auth changes with protected admin verification
+          this.firebaseAuth.onAuthStateChanged(async (user) => {
+            if (user) {
+              const emailLower = (user.email || "").toLowerCase().trim();
+              const isEmailAdmin = emailLower === this.adminEmail.toLowerCase();
+              const isUidAdmin = user.uid === this.adminUid;
+              let isAdm = isUidAdmin || isEmailAdmin;
+
+              try {
+                // Verify custom claims stamped by Firebase Admin SDK
+                // Check cached token claims first; if not detected, force refresh to fetch latest claims
+                let tokenResult = await user.getIdTokenResult(false);
+                if (tokenResult && tokenResult.claims && tokenResult.claims.admin === true) {
+                  isAdm = true;
+                } else {
+                  tokenResult = await user.getIdTokenResult(true);
+                  if (tokenResult && tokenResult.claims && tokenResult.claims.admin === true) {
+                    isAdm = true;
+                  }
+                }
+              } catch (tokenErr) {
+                // Fail-safe check: UID and email checks retain admin status
+              }
+
+              this.currentUser = {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.email.split("@")[0],
+                photoURL: user.photoURL || null,
+                isAnonymous: user.isAnonymous,
+                isAdmin: isAdm
+              };
+              this.isAdmin = isAdm;
+
+              if (isAdm) {
+                console.log("🛡️ Official Administrator session authenticated:", user.email);
+              }
+            } else {
+              this.currentUser = null;
+              this.isAdmin = false;
+            }
+            this.notifyAuthSubscribers(this.currentUser);
+            this.updateNavbarUI();
+            this.handleAuthStateChange(this.currentUser);
+          });
+        } else {
+          this.firebaseActive = false;
+          this.loadLocalCachedSession();
         }
-        this.firebaseActive = true;
-        console.log("Firebase Auth & Cloud Services successfully initialized.");
-
-        // Subscribe to live Firebase auth changes
-        this.firebaseAuth.onAuthStateChanged((user) => {
-          if (user) {
-            this.currentUser = {
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName || user.email.split("@")[0],
-              photoURL: user.photoURL || null,
-              isAnonymous: user.isAnonymous
-            };
-          } else {
-            this.currentUser = null;
-          }
-          this.notifyAuthSubscribers(this.currentUser);
-          this.updateNavbarUI();
-          this.handleAuthStateChange(this.currentUser);
-        });
 
       } catch (err) {
-        console.warn("Failed to initialize Firebase:", err);
+        console.warn("Failed to reuse Firebase connection:", err);
         this.firebaseActive = false;
         this.loadLocalCachedSession();
       }
@@ -101,6 +132,19 @@ const AuthService = {
 
   getCurrentUser() {
     return this.currentUser;
+  },
+
+  /**
+   * Protected administrator check (checks custom claims, authorized UID, and admin email)
+   */
+  isAdministrator() {
+    if (!this.currentUser) return false;
+    const emailLower = (this.currentUser.email || "").toLowerCase().trim();
+    return !!(
+      this.currentUser.isAdmin ||
+      this.currentUser.uid === this.adminUid ||
+      (emailLower && emailLower === this.adminEmail.toLowerCase())
+    );
   },
 
   onAuthStateChanged(callback) {
@@ -146,12 +190,24 @@ const AuthService = {
       try {
         const userCred = await this.firebaseAuth.signInWithEmailAndPassword(email, password);
         const user = userCred.user;
+        const emailLower = (user.email || "").toLowerCase().trim();
+        let isAdm = user.uid === this.adminUid || emailLower === this.adminEmail.toLowerCase();
+        try {
+          const tokenResult = await user.getIdTokenResult(true);
+          if (tokenResult && tokenResult.claims && tokenResult.claims.admin === true) {
+            isAdm = true;
+          }
+        } catch (claimErr) {}
+
         this.currentUser = {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName || user.email.split("@")[0],
-          photoURL: user.photoURL || null
+          photoURL: user.photoURL || null,
+          isAdmin: isAdm
         };
+        this.isAdmin = isAdm;
+        this.updateNavbarUI();
         this.closeAuthModal();
         this.executePendingAction();
         return this.currentUser;
@@ -192,8 +248,17 @@ const AuthService = {
           photoURL: null
         };
 
-        // If Firestore is available, initialize user profile document
-        if (this.firestore) {
+        // If Firestore is available, initialize user profile document via reusable FirestoreService
+        if (window.FirestoreService && FirestoreService.isAvailable()) {
+          try {
+            await FirestoreService.saveUserProfile(user.uid, {
+              name: name.trim(),
+              email: email.trim().toLowerCase()
+            });
+          } catch (fsErr) {
+            console.warn("Firestore user profile save error (non-fatal):", fsErr);
+          }
+        } else if (this.firestore) {
           try {
             await this.firestore.collection("users").doc(user.uid).set({
               uid: user.uid,
@@ -462,6 +527,20 @@ const AuthService = {
       if (window.App && App.closeMobileMenu) App.closeMobileMenu();
       this.signOut();
     });
+
+    // Admin Dashboard triggers
+    const openAdminHandler = (e) => {
+      if (e) e.preventDefault();
+      if (dropdown) dropdown.classList.remove("active");
+      if (window.App && App.closeMobileMenu) App.closeMobileMenu();
+      if (window.AdminDashboard && typeof window.AdminDashboard.open === "function") {
+        window.AdminDashboard.open();
+      }
+    };
+
+    document.getElementById("nav-admin-dashboard-btn")?.addEventListener("click", openAdminHandler);
+    document.getElementById("user-menu-admin-item")?.addEventListener("click", openAdminHandler);
+    document.getElementById("mobile-admin-dashboard-btn")?.addEventListener("click", openAdminHandler);
   },
 
   updateNavbarUI() {
@@ -502,6 +581,16 @@ const AuthService = {
       if (mobileUnauth) mobileUnauth.style.display = "block";
       if (mobileAuth) mobileAuth.style.display = "none";
     }
+
+    // Toggle Private Developer Admin Dashboard Access
+    const isAdm = this.isAdministrator();
+    const adminNavBtn = document.getElementById("nav-admin-dashboard-btn");
+    const mobileAdminBtn = document.getElementById("mobile-admin-dashboard-btn");
+    const dropdownAdminItem = document.getElementById("user-menu-admin-item");
+
+    if (adminNavBtn) adminNavBtn.style.display = isAdm ? "inline-flex" : "none";
+    if (mobileAdminBtn) mobileAdminBtn.style.display = isAdm ? "block" : "none";
+    if (dropdownAdminItem) dropdownAdminItem.style.display = isAdm ? "block" : "none";
   },
 
   /**

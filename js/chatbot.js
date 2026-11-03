@@ -2,33 +2,62 @@
  * Wayvora - Conversational AI Assistant & Travel Concierge
  * Supports worldwide travel planning, Indian states & Union Territories,
  * real-time Open-Meteo weather integration, multi-turn conversational memory,
- * and general multi-topic assistance (programming, AI, science, culture, etc.).
+ * two-way voice interaction (Speech-to-Text & Text-to-Speech in English, Kannada, Hindi),
+ * and general multi-topic assistance.
  */
 
 const AIChatbot = {
   isOpen: false,
   isTyping: false,
+  isRecording: false,
+  recognitionInstance: null,
+  selectedVoiceLang: "auto", // 'auto', 'en-IN', 'kn-IN', 'hi-IN'
+  availableVoices: [],
+  activeSpeakingIndex: null,
+  activeUtterance: null,
+  speechBaseInputVal: "",
+  _toastTimer: null,
   conversationHistory: [],
   messages: [
     {
       sender: "ai",
       time: "Just now",
-      text: "Hello explorer! 👋 I'm your **Wayvora AI Assistant & Travel Concierge**.\n\nI can help you plan personalized day-by-day itineraries anywhere in the world, explore destinations across India and globally, check live weather, or answer general questions (like technology, programming, or culture). Where are you headed next?"
+      text: "Hello! 👋 I'm **Wayvora AI**, your versatile general-purpose AI assistant and travel concierge.\n\nYou can ask me **anything**—from programming, computer science, and cybersecurity, to math, science, language translations (**English**, **Kannada**, **Hindi**), vocabulary, career guidance, and creative writing—as well as personalized day-by-day travel itineraries worldwide. How can I help you today?"
     }
   ],
 
   suggestedQuestions: [
-    "Plan a 3-day trip to Goa",
-    "Suggest waterfalls near Belagavi, Karnataka",
-    "What is the best time to visit Kerala?",
-    "Explain artificial intelligence",
-    "What is the weather in Goa today?",
-    "Write a simple Python program"
+    "Plan a 3-day trip in India.",
+    "Explore the best destinations in India.",
+    "Suggest budget-friendly international trips.",
+    "What are the best places to visit in Goa?",
+    "Estimate my travel budget.",
+    "What is the best time to visit Bali?"
   ],
 
   init() {
     this.createChatWidget();
     this.bindEvents();
+    this.initVoices();
+  },
+
+  /**
+   * Initialize speech synthesis voices
+   */
+  initVoices() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const loadVoices = () => {
+        try {
+          this.availableVoices = window.speechSynthesis.getVoices() || [];
+        } catch (e) {
+          this.availableVoices = [];
+        }
+      };
+      loadVoices();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    }
   },
 
   createChatWidget() {
@@ -51,6 +80,9 @@ const AIChatbot = {
 
       <!-- Chat Window Panel -->
       <div class="ai-chat-window" id="ai-chat-window" role="dialog" aria-modal="false" aria-label="Wayvora AI Travel Assistant">
+        <!-- Voice Toast Notification -->
+        <div class="ai-voice-toast" id="ai-voice-toast" role="status" aria-live="polite"></div>
+
         <!-- Chat Header -->
         <div class="ai-chat-header">
           <div class="ai-concierge-profile">
@@ -63,7 +95,7 @@ const AIChatbot = {
             </div>
             <div>
               <h3 class="ai-concierge-title">Wayvora AI Assistant</h3>
-              <p class="ai-concierge-status">Online • Intelligent Travel & General Companion</p>
+              <p class="ai-concierge-status">Online • General AI Assistant & Travel Concierge</p>
             </div>
           </div>
           <div class="ai-header-controls">
@@ -86,12 +118,48 @@ const AIChatbot = {
           </div>
         </div>
 
+        <!-- Voice Recognition Live Status Bar -->
+        <div class="ai-voice-status-bar" id="ai-voice-status-bar">
+          <div class="voice-status-info">
+            <span class="voice-rec-dot"></span>
+            <span class="voice-status-text" id="voice-status-text">Listening... Speak now</span>
+          </div>
+          <div class="voice-status-actions">
+            <button type="button" class="voice-cancel-btn" id="voice-cancel-btn" title="Cancel voice input">Cancel</button>
+            <button type="button" class="voice-done-btn" id="voice-done-btn" title="Finish voice input">Done</button>
+          </div>
+        </div>
+
         <!-- Chat Input Footer -->
         <form class="ai-chat-input-row" id="ai-chat-form">
+          <!-- Voice Language Selector -->
+          <div class="ai-voice-lang-picker" id="ai-voice-lang-picker">
+            <button type="button" class="ai-btn-lang" id="ai-btn-lang" title="Select Voice Recognition Language" aria-label="Select voice recognition language">
+              <span id="ai-current-lang-label">Auto</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="ai-lang-menu" id="ai-lang-menu">
+              <button type="button" class="ai-lang-opt active" data-lang="auto">🌐 Auto Detect</button>
+              <button type="button" class="ai-lang-opt" data-lang="en-IN">🇬🇧 English (India)</button>
+              <button type="button" class="ai-lang-opt" data-lang="kn-IN">🇮🇳 Kannada (ಕನ್ನಡ)</button>
+              <button type="button" class="ai-lang-opt" data-lang="hi-IN">🇮🇳 Hindi (हिंदी)</button>
+            </div>
+          </div>
+
+          <!-- Microphone Voice Input Button -->
+          <button type="button" class="ai-btn-mic" id="ai-btn-mic" title="Voice typing (Speak to assistant)" aria-label="Voice typing">
+            <svg class="icon-mic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="22"></line>
+              <line x1="8" y1="22" x2="16" y2="22"></line>
+            </svg>
+          </button>
+
           <input 
             type="text" 
             id="ai-chat-input" 
-            placeholder="Ask anything (travel itineraries, destinations, coding, AI...)" 
+            placeholder="Ask anything (coding, math, translations, travel)..." 
             autocomplete="off" 
             required 
           />
@@ -114,6 +182,13 @@ const AIChatbot = {
     const minimizeBtn = document.getElementById("ai-chat-minimize");
     const form = document.getElementById("ai-chat-form");
     const input = document.getElementById("ai-chat-input");
+    const micBtn = document.getElementById("ai-btn-mic");
+    const cancelBtn = document.getElementById("voice-cancel-btn");
+    const doneBtn = document.getElementById("voice-done-btn");
+    const langBtn = document.getElementById("ai-btn-lang");
+    const langMenu = document.getElementById("ai-lang-menu");
+    const langPicker = document.getElementById("ai-voice-lang-picker");
+    const langLabel = document.getElementById("ai-current-lang-label");
 
     if (trigger) trigger.addEventListener("click", () => this.toggleChat());
     if (minimizeBtn) minimizeBtn.addEventListener("click", () => this.closeChat());
@@ -123,20 +198,125 @@ const AIChatbot = {
         e.preventDefault();
         const text = input.value.trim();
         if (!text || this.isTyping) return;
+        if (this.isRecording) {
+          this.stopVoiceRecognition(true);
+        }
+        this.stopSpeaking();
         this.sendMessage(text);
         input.value = "";
       });
     }
 
-    // Handle suggestion chips
-    document.querySelectorAll(".ai-prompt-chip").forEach(chip => {
-      chip.addEventListener("click", () => {
-        const prompt = chip.dataset.prompt;
-        if (prompt && !this.isTyping) {
-          this.sendMessage(prompt);
+    // Microphone button toggle
+    if (micBtn) {
+      micBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (this.isRecording) {
+          this.stopVoiceRecognition(true);
+        } else {
+          this.startVoiceRecognition();
         }
       });
-    });
+    }
+
+    // Voice status bar action buttons
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.cancelVoiceRecognition();
+      });
+    }
+    if (doneBtn) {
+      doneBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.stopVoiceRecognition(true);
+      });
+    }
+
+    // Language picker toggle
+    if (langBtn && langMenu) {
+      langBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        langMenu.classList.toggle("show");
+      });
+
+      // Language selection
+      langMenu.querySelectorAll(".ai-lang-opt").forEach(opt => {
+        opt.addEventListener("click", (e) => {
+          e.preventDefault();
+          const lang = opt.dataset.lang;
+          this.selectedVoiceLang = lang;
+          langMenu.querySelectorAll(".ai-lang-opt").forEach(o => o.classList.toggle("active", o === opt));
+          const labelMap = { auto: "Auto", "en-IN": "EN", "kn-IN": "KN", "hi-IN": "HI" };
+          if (langLabel) langLabel.textContent = labelMap[lang] || "Auto";
+          langMenu.classList.remove("show");
+          this.showVoiceStatusToast(`Voice set to: ${opt.textContent.trim().replace(/^🌐|🇮🇳|🇬🇧\s*/, "")}`);
+        });
+      });
+
+      // Close dropdown when clicking outside
+      document.addEventListener("click", (e) => {
+        if (langPicker && !langPicker.contains(e.target)) {
+          langMenu.classList.remove("show");
+        }
+      });
+    }
+
+    // Delegated click handler for suggestion chips (handles dynamic updates)
+    const promptsBar = document.getElementById("ai-suggested-prompts");
+    if (promptsBar) {
+      promptsBar.addEventListener("click", (e) => {
+        const chip = e.target.closest(".ai-prompt-chip");
+        if (chip) {
+          const prompt = chip.dataset.prompt;
+          if (prompt && !this.isTyping) {
+            if (this.isRecording) this.stopVoiceRecognition(true);
+            this.stopSpeaking();
+            this.sendMessage(prompt);
+          }
+        }
+      });
+    }
+
+    // Delegated click listener for copy-code and Text-to-Speech (TTS) speaker buttons
+    const messagesContainer = document.getElementById("ai-chat-messages");
+    if (messagesContainer) {
+      messagesContainer.addEventListener("click", (e) => {
+        const copyBtn = e.target.closest(".ai-copy-code-btn");
+        if (copyBtn) {
+          e.preventDefault();
+          const rawCode = copyBtn.getAttribute("data-code");
+          if (rawCode) {
+            const codeToCopy = decodeURIComponent(rawCode);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(codeToCopy).then(() => {
+                const label = copyBtn.querySelector("span");
+                if (label) label.textContent = "Copied! ✓";
+                copyBtn.classList.add("copied");
+                setTimeout(() => {
+                  if (label) label.textContent = "Copy";
+                  copyBtn.classList.remove("copied");
+                }, 2000);
+              }).catch(() => {
+                const label = copyBtn.querySelector("span");
+                if (label) label.textContent = "Copied! ✓";
+              });
+            }
+          }
+          return;
+        }
+
+        const speakBtn = e.target.closest(".ai-btn-speak");
+        if (speakBtn) {
+          e.preventDefault();
+          const idx = parseInt(speakBtn.dataset.msgIdx, 10);
+          if (!isNaN(idx)) {
+            this.speakMessage(idx);
+          }
+        }
+      });
+    }
   },
 
   toggleChat() {
@@ -167,6 +347,340 @@ const AIChatbot = {
     this.isOpen = false;
     windowEl.classList.remove("active");
     if (trigger) trigger.classList.remove("hidden");
+    if (this.isRecording) this.cancelVoiceRecognition();
+    this.stopSpeaking();
+  },
+
+  /**
+   * Display temporary voice status toast
+   */
+  showVoiceStatusToast(message, type = "info") {
+    const toast = document.getElementById("ai-voice-toast");
+    if (!toast) return;
+
+    toast.textContent = message;
+    toast.classList.add("show");
+
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      toast.classList.remove("show");
+    }, 3500);
+  },
+
+  /**
+   * Start Speech-to-Text Voice Recognition
+   */
+  startVoiceRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      this.showVoiceStatusToast("Speech recognition is not supported in this browser. Try Google Chrome or Microsoft Edge.");
+      return;
+    }
+
+    // Stop active speech playback if currently talking
+    this.stopSpeaking();
+
+    const input = document.getElementById("ai-chat-input");
+    const micBtn = document.getElementById("ai-btn-mic");
+    const statusBar = document.getElementById("ai-voice-status-bar");
+    const statusText = document.getElementById("voice-status-text");
+
+    this.speechBaseInputVal = input ? input.value : "";
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      // Determine language
+      let targetLang = "en-IN";
+      if (this.selectedVoiceLang === "kn-IN") {
+        targetLang = "kn-IN";
+      } else if (this.selectedVoiceLang === "hi-IN") {
+        targetLang = "hi-IN";
+      } else if (this.selectedVoiceLang === "en-IN") {
+        targetLang = "en-IN";
+      } else {
+        // Auto: inspect context or default to Indian English / browser language
+        const lastMsg = this.conversationHistory.slice(-1)[0]?.content || "";
+        if (/[\u0C80-\u0CFF]/.test(lastMsg)) targetLang = "kn-IN";
+        else if (/[\u0900-\u097F]/.test(lastMsg)) targetLang = "hi-IN";
+        else targetLang = navigator.language || "en-IN";
+      }
+      recognition.lang = targetLang;
+
+      this.recognitionInstance = recognition;
+      this.isRecording = true;
+
+      if (micBtn) micBtn.classList.add("is-recording");
+      if (statusBar) statusBar.classList.add("active");
+      const langNames = { "kn-IN": "Kannada", "hi-IN": "Hindi", "en-IN": "English" };
+      const displayLang = langNames[targetLang] || targetLang.split("-")[0].toUpperCase();
+      if (statusText) statusText.textContent = `Listening (${displayLang})... Speak now`;
+
+      let finalTranscript = "";
+
+      recognition.onresult = (event) => {
+        let interimTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const item = event.results[i][0];
+          if (event.results[i].isFinal) {
+            finalTranscript += item.transcript + " ";
+          } else {
+            interimTranscript += item.transcript;
+          }
+        }
+
+        if (input) {
+          const combined = (this.speechBaseInputVal ? this.speechBaseInputVal + " " : "") + finalTranscript + interimTranscript;
+          input.value = combined.trimStart();
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition notice:", event.error);
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          this.showVoiceStatusToast("Microphone permission denied. Please allow microphone access in your browser.");
+        } else if (event.error === "no-speech") {
+          this.showVoiceStatusToast("No speech detected. Please try speaking again.");
+        } else if (event.error === "audio-capture") {
+          this.showVoiceStatusToast("Microphone not detected or unavailable.");
+        } else if (event.error === "network") {
+          this.showVoiceStatusToast("Network issue encountered during speech recognition.");
+        }
+        this.cleanupVoiceRecognition();
+      };
+
+      recognition.onend = () => {
+        if (this.isRecording) {
+          this.cleanupVoiceRecognition();
+        }
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn("Failed to start speech recognition:", err);
+      this.showVoiceStatusToast("Could not access microphone.");
+      this.cleanupVoiceRecognition();
+    }
+  },
+
+  /**
+   * Stop Speech-to-Text Voice Recognition and retain transcribed text
+   */
+  stopVoiceRecognition(saveResult = true) {
+    if (this.recognitionInstance) {
+      try {
+        this.recognitionInstance.stop();
+      } catch (e) {}
+    }
+    this.cleanupVoiceRecognition();
+    const input = document.getElementById("ai-chat-input");
+    if (!saveResult && input) {
+      input.value = this.speechBaseInputVal;
+    }
+    if (input) input.focus();
+  },
+
+  /**
+   * Cancel Speech-to-Text Voice Recognition and revert input
+   */
+  cancelVoiceRecognition() {
+    if (this.recognitionInstance) {
+      try {
+        this.recognitionInstance.abort();
+      } catch (e) {}
+    }
+    const input = document.getElementById("ai-chat-input");
+    if (input) {
+      input.value = this.speechBaseInputVal;
+    }
+    this.cleanupVoiceRecognition();
+    this.showVoiceStatusToast("Voice input cancelled.");
+  },
+
+  /**
+   * Clean up UI recording states
+   */
+  cleanupVoiceRecognition() {
+    this.isRecording = false;
+    this.recognitionInstance = null;
+    const micBtn = document.getElementById("ai-btn-mic");
+    const statusBar = document.getElementById("ai-voice-status-bar");
+    if (micBtn) micBtn.classList.remove("is-recording");
+    if (statusBar) statusBar.classList.remove("active");
+  },
+
+  /**
+   * Clean markdown, symbols, and formatting for natural spoken audio
+   */
+  cleanTextForSpeech(text) {
+    if (!text) return "";
+    let clean = text;
+
+    // Remove code blocks
+    clean = clean.replace(/```[\s\S]*?```/g, " ");
+    // Remove inline code
+    clean = clean.replace(/`([^`]+)`/g, "$1");
+    // Expand currency symbols
+    clean = clean.replace(/₹\s*([0-9,]+)/g, "$1 Rupees");
+    clean = clean.replace(/\$\s*([0-9,]+)/g, "$1 Dollars");
+    clean = clean.replace(/€\s*([0-9,]+)/g, "$1 Euros");
+    // Replace markdown links [label](url) with label
+    clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    // Remove markdown headers
+    clean = clean.replace(/^#{1,6}\s+/gm, "");
+    // Remove bold, italics, strikethrough
+    clean = clean.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1");
+    clean = clean.replace(/_{1,3}([^_]+)_{1,3}/g, "$1");
+    clean = clean.replace(/~{1,2}([^~]+)~{1,2}/g, "$1");
+    // Remove bullet points and numbered list markers
+    clean = clean.replace(/^\s*[-*•]\s+/gm, "");
+    clean = clean.replace(/^\s*\d+\.\s+/gm, "");
+    // Remove emojis and common decorative symbols
+    clean = clean.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1FA00}-\u{1FAFF}]/gu, "");
+    // Normalize whitespace
+    clean = clean.replace(/\s+/g, " ").trim();
+
+    return clean;
+  },
+
+  /**
+   * Detect message language for Text-to-Speech voice matching
+   */
+  detectMessageLanguage(text) {
+    if (!text) return "en-IN";
+    // Check Kannada Unicode range: 0C80 - 0CFF
+    if (/[\u0C80-\u0CFF]/.test(text)) return "kn-IN";
+    // Check Devanagari (Hindi) Unicode range: 0900 - 097F
+    if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
+    // Respect selected voice language if explicitly set
+    if (this.selectedVoiceLang && this.selectedVoiceLang !== "auto") {
+      return this.selectedVoiceLang;
+    }
+    return "en-IN";
+  },
+
+  /**
+   * Read AI response aloud using SpeechSynthesis
+   */
+  speakMessage(index) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      this.showVoiceStatusToast("Voice playback is not supported on this browser.");
+      return;
+    }
+
+    // Toggle playback if clicked on currently active message
+    if (this.activeSpeakingIndex === index) {
+      if (window.speechSynthesis.speaking) {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+          this.updateSpeakerButtons(index, true);
+          return;
+        } else {
+          this.stopSpeaking();
+          return;
+        }
+      }
+    }
+
+    // Stop any ongoing speech or microphone recording
+    this.stopSpeaking();
+    if (this.isRecording) {
+      this.stopVoiceRecognition(true);
+    }
+
+    const msg = this.messages[index];
+    if (!msg || !msg.text) return;
+
+    const cleanText = this.cleanTextForSpeech(msg.text);
+    if (!cleanText) return;
+
+    const langCode = this.detectMessageLanguage(msg.text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = langCode;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    // Select optimal voice available on device
+    const voices = window.speechSynthesis.getVoices() || this.availableVoices || [];
+    if (voices && voices.length > 0) {
+      const langPrefix = langCode.split("-")[0].toLowerCase();
+      // 1. Exact language match (e.g. 'kn-IN', 'hi-IN', 'en-IN')
+      let matchedVoice = voices.find(v => v.lang && v.lang.toLowerCase() === langCode.toLowerCase());
+      // 2. Language prefix match (e.g. 'kn', 'hi', 'en')
+      if (!matchedVoice) {
+        matchedVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith(langPrefix));
+      }
+      // 3. Indian English preference for English
+      if (!matchedVoice && langPrefix === "en") {
+        matchedVoice = voices.find(v => v.lang && (v.lang.toLowerCase().includes("in") || (v.name && v.name.toLowerCase().includes("india"))));
+      }
+      if (matchedVoice) {
+        utterance.voice = matchedVoice;
+      }
+    }
+
+    utterance.onstart = () => {
+      this.activeSpeakingIndex = index;
+      this.updateSpeakerButtons(index, true);
+    };
+
+    utterance.onend = () => {
+      this.activeSpeakingIndex = null;
+      this.activeUtterance = null;
+      this.updateSpeakerButtons(null, false);
+    };
+
+    utterance.onerror = (err) => {
+      console.warn("Speech synthesis notice:", err);
+      this.activeSpeakingIndex = null;
+      this.activeUtterance = null;
+      this.updateSpeakerButtons(null, false);
+    };
+
+    this.activeUtterance = utterance;
+    this.activeSpeakingIndex = index;
+    this.updateSpeakerButtons(index, true);
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  },
+
+  /**
+   * Stop active speech synthesis
+   */
+  stopSpeaking() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+    this.activeSpeakingIndex = null;
+    this.activeUtterance = null;
+    this.updateSpeakerButtons(null, false);
+  },
+
+  /**
+   * Update visual states of all speaker buttons
+   */
+  updateSpeakerButtons(activeIdx, isSpeaking) {
+    document.querySelectorAll(".ai-btn-speak").forEach(btn => {
+      const idx = parseInt(btn.dataset.msgIdx, 10);
+      const label = btn.querySelector(".speak-btn-label");
+      if (isSpeaking && idx === activeIdx) {
+        btn.classList.add("is-speaking");
+        btn.title = "Stop speaking";
+        btn.setAttribute("aria-label", "Stop speaking");
+        if (label) label.textContent = "Stop";
+      } else {
+        btn.classList.remove("is-speaking");
+        btn.title = "Listen to response";
+        btn.setAttribute("aria-label", "Listen to response");
+        if (label) label.textContent = "Listen";
+      }
+    });
   },
 
   /**
@@ -176,15 +690,30 @@ const AIChatbot = {
   formatMarkdown(text) {
     if (!text) return "";
 
-    // 1. Extract and store fenced code blocks
+    // 1. Extract and store fenced code blocks with copy button
     const codeBlocks = [];
     let processed = text.replace(/```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
       const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
-      const escaped = code
+      const trimmedCode = code.trim();
+      const encoded = encodeURIComponent(trimmedCode);
+      const displayLang = lang || 'code';
+      const escaped = trimmedCode
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
-      codeBlocks.push(`<pre><code class="language-${lang || 'text'}">${escaped.trim()}</code></pre>`);
+      const blockHtml = `
+        <div class="ai-code-block-wrapper">
+          <div class="ai-code-block-header">
+            <span class="code-lang-tag">${displayLang}</span>
+            <button type="button" class="ai-copy-code-btn" data-code="${encoded}" title="Copy code to clipboard">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+          <pre><code class="language-${displayLang}">${escaped}</code></pre>
+        </div>
+      `.trim();
+      codeBlocks.push(blockHtml);
       return placeholder;
     });
 
@@ -215,20 +744,43 @@ const AIChatbot = {
     processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-    // 6. Lists
-    processed = processed.replace(/^\s*[-*]\s+(.*)$/gim, '<li>$1</li>');
+    // 6. Markdown Tables
+    processed = processed.replace(/(?:^|\n)(\|.+?\|\n\|[-:\s|]+?\|\n(?:\|.+?\|\n?)+)/g, (match, tableText) => {
+      const rows = tableText.trim().split('\n').map(r => r.trim()).filter(Boolean);
+      if (rows.length < 2) return match;
+      const headerCells = rows[0].split('|').slice(1, -1).map(c => `<th>${c.trim()}</th>`).join('');
+      const bodyRows = rows.slice(2).map(row => {
+        const cells = row.split('|').slice(1, -1).map(c => `<td>${c.trim()}</td>`).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      return `\n<div class="ai-table-container"><table class="ai-markdown-table"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>\n`;
+    });
+
+    // 7. Blockquotes
+    processed = processed.replace(/^\>\s+(.*)$/gim, '<blockquote>$1</blockquote>');
+
+    // 8. Lists
+    processed = processed.replace(/^\s*[-*•]\s+(.*)$/gim, '<li>$1</li>');
     processed = processed.replace(/^\s*\d+\.\s+(.*)$/gim, '<li>$1</li>');
     processed = processed.replace(/(<li>.*?<\/li>(\s*<li>.*?<\/li>)*)/gims, '<ul>$1</ul>');
 
-    // 7. Line breaks
+    // 9. Line breaks
     processed = processed.replace(/\n\n+/g, '</p><p>');
     processed = processed.replace(/\n/g, '<br/>');
     processed = `<p>${processed}</p>`;
-    processed = processed.replace(/<p>\s*<\/p>/g, '');
-    processed = processed.replace(/<p><(h[34]|ul|ol|pre)/g, '<$1');
-    processed = processed.replace(/<\/(h[34]|ul|ol|pre)><\/p>/g, '</$1>');
 
-    // 8. Restore code placeholders
+    // Clean up unwanted tags around block elements
+    processed = processed.replace(/<\/li><br\/>/g, '</li>');
+    processed = processed.replace(/<ul><br\/>/g, '<ul>');
+    processed = processed.replace(/<br\/><ul>/g, '<ul>');
+    processed = processed.replace(/<\/ul><br\/>/g, '</ul>');
+    processed = processed.replace(/<p>\s*<\/p>/g, '');
+    processed = processed.replace(/<p><br\/>/g, '<p>');
+    processed = processed.replace(/<br\/><\/p>/g, '</p>');
+    processed = processed.replace(/<p><(h[34]|ul|ol|pre|div|blockquote)/g, '<$1');
+    processed = processed.replace(/<\/(h[34]|ul|ol|pre|div|blockquote)><\/p>/g, '</$1>');
+
+    // 10. Restore code placeholders
     codeBlocks.forEach((block, idx) => {
       processed = processed.replace(`__CODE_BLOCK_${idx}__`, block);
     });
@@ -243,9 +795,10 @@ const AIChatbot = {
     const container = document.getElementById("ai-chat-messages");
     if (!container) return;
 
-    container.innerHTML = this.messages.map(m => {
+    container.innerHTML = this.messages.map((m, idx) => {
       const isAI = m.sender === "ai";
       const formattedText = this.formatMarkdown(m.text);
+      const isSpeakingThis = (this.activeSpeakingIndex === idx);
 
       return `
         <div class="chat-bubble-wrapper ${isAI ? 'from-ai' : 'from-user'} animate-fade-in">
@@ -256,7 +809,35 @@ const AIChatbot = {
           ` : ''}
           <div class="chat-bubble">
             <div class="bubble-content">${formattedText}</div>
-            <div class="bubble-timestamp">${m.time}</div>
+            ${isAI ? `
+              <div class="bubble-footer">
+                <span class="bubble-timestamp">${m.time}</span>
+                <button 
+                  type="button" 
+                  class="ai-btn-speak ${isSpeakingThis ? 'is-speaking' : ''}" 
+                  data-msg-idx="${idx}" 
+                  title="${isSpeakingThis ? 'Stop speaking' : 'Listen to response'}" 
+                  aria-label="${isSpeakingThis ? 'Stop speaking' : 'Listen to response'}"
+                >
+                  <svg class="icon-speak-play" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                  </svg>
+                  <svg class="icon-speak-stop" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                  </svg>
+                  <div class="speak-soundwaves" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <span class="speak-btn-label">${isSpeakingThis ? 'Stop' : 'Listen'}</span>
+                </button>
+              </div>
+            ` : `
+              <div class="bubble-timestamp">${m.time}</div>
+            `}
           </div>
         </div>
       `;
@@ -353,224 +934,175 @@ const AIChatbot = {
     });
 
     this.renderMessages();
+
+    // 6. Update smart context-aware suggestions based on conversation
+    const smartSuggestions = this.getSmartSuggestions(text, reply);
+    this.renderSuggestions(smartSuggestions);
   },
 
   /**
-   * Client-side intelligent fallback engine with live Open-Meteo weather,
-   * context-aware memory, and worldwide/Indian travel knowledge.
+   * Render dynamic suggestion chips into the quick suggestions bar
+   */
+  renderSuggestions(suggestions) {
+    const promptsBar = document.getElementById("ai-suggested-prompts");
+    if (!promptsBar) return;
+    const list = (Array.isArray(suggestions) && suggestions.length > 0) ? suggestions : this.suggestedQuestions;
+    const scrollEl = promptsBar.querySelector(".prompts-scroll");
+    if (scrollEl) {
+      scrollEl.innerHTML = list.map(q => `
+        <button type="button" class="ai-prompt-chip" data-prompt="${q.replace(/"/g, '&quot;')}">${q}</button>
+      `).join("");
+    }
+  },
+
+  /**
+   * Smart context-aware suggestions generator based on conversation context
+   */
+  getSmartSuggestions(query, reply) {
+    if (!query) return this.suggestedQuestions;
+    const q = query.toLowerCase();
+
+    // 1. Kannada / Language Translation context
+    if (
+      q.includes("kannada") || q.includes("ಕನ್ನಡ") || q.includes("translate") ||
+      q.includes("meaning in") || q.includes("word meaning") || q.includes("word in kannada")
+    ) {
+      return [
+        "Translate another English word into Kannada.",
+        "Explain this word with an example.",
+        "Translate a sentence into Kannada."
+      ];
+    }
+
+    // 2. Travel Destination & Planning context
+    if (
+      q.includes("trip") || q.includes("travel") || q.includes("destination") ||
+      q.includes("goa") || q.includes("india") || q.includes("bali") ||
+      q.includes("kerala") || q.includes("manali") || q.includes("kashmir") ||
+      q.includes("itinerary") || q.includes("visit") || q.includes("places to visit") ||
+      q.includes("budget")
+    ) {
+      return [
+        "Best attractions nearby.",
+        "Estimated travel expenses.",
+        "Best time to visit.",
+        "Suggested itinerary."
+      ];
+    }
+
+    // 3. AI / Machine Learning context
+    if (
+      q.includes("artificial intelligence") || q.includes("what is ai") ||
+      q.includes("machine learning") || q.includes("deep learning") || q.includes("neural")
+    ) {
+      return [
+        "How do neural networks work?",
+        "What is machine learning?",
+        "Give real-world AI applications."
+      ];
+    }
+
+    // 4. Cybersecurity context
+    if (
+      q.includes("cybersecurity") || q.includes("security") || q.includes("firewall") ||
+      q.includes("osi") || q.includes("encryption") || q.includes("tcp") || q.includes("vulnerability")
+    ) {
+      return [
+        "Explain the CIA triad in security.",
+        "How does SSL/TLS encryption work?",
+        "What are common web vulnerabilities?"
+      ];
+    }
+
+    // 5. Programming / Computer Science context
+    if (
+      q.includes("python") || q.includes("javascript") || q.includes("code") ||
+      q.includes("binary search") || q.includes("algorithm") || q.includes("data structure")
+    ) {
+      return [
+        "Explain time and space complexity (Big-O).",
+        "Write Python code for this.",
+        "Show an example with practical use case."
+      ];
+    }
+
+    // Default fallback: Always restore the 6 premier travel suggestions
+    return this.suggestedQuestions;
+  },
+
+  /**
+   * Reset conversation and restore default travel suggestions
+   */
+  resetConversation() {
+    this.messages = [
+      {
+        sender: "ai",
+        time: "Just now",
+        text: "Hello! 👋 I'm **Wayvora AI**, your versatile general-purpose AI assistant and travel concierge.\n\nYou can ask me **anything**—from programming, computer science, and cybersecurity, to math, science, language translations (**English**, **Kannada**, **Hindi**), vocabulary, career guidance, and creative writing—as well as personalized day-by-day travel itineraries worldwide. How can I help you today?"
+      }
+    ];
+    this.conversationHistory = [];
+    this.renderMessages();
+    this.renderSuggestions(this.suggestedQuestions);
+  },
+
+  /**
+   * Fetch live weather directly on client via Open-Meteo API
+   */
+  async fetchClientLiveWeather(place) {
+    try {
+      const geoUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(place) + '&count=1';
+      const geoRes = await fetch(geoUrl);
+      const geoData = await geoRes.json();
+      if (geoData && geoData.results && geoData.results.length > 0) {
+        const loc = geoData.results[0];
+        const wUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.latitude + '&longitude=' + loc.longitude + '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto';
+        const wRes = await fetch(wUrl);
+        const wData = await wRes.json();
+        if (wData && wData.current) {
+          const tempC = Math.round(wData.current.temperature_2m);
+          const humidity = wData.current.relative_humidity_2m;
+          const wind = wData.current.wind_speed_10m;
+          const high = wData.daily ? Math.round(wData.daily.temperature_2m_max[0]) : tempC + 2;
+          const low = wData.daily ? Math.round(wData.daily.temperature_2m_min[0]) : tempC - 3;
+
+          let condition = 'Clear & Sunny';
+          const code = wData.current.weather_code;
+          if (code === 0) condition = 'Clear Sky';
+          else if (code >= 1 && code <= 3) condition = 'Mainly Clear / Partly Cloudy';
+          else if (code >= 45 && code <= 48) condition = 'Foggy & Misty';
+          else if (code >= 51 && code <= 67) condition = 'Drizzle & Rain';
+          else if (code >= 71 && code <= 77) condition = 'Snowfall';
+          else if (code >= 80 && code <= 82) condition = 'Rain Showers';
+          else if (code >= 95) condition = 'Thunderstorm';
+
+          return {
+            place: loc.name + (loc.country ? ', ' + loc.country : ''),
+            tempC,
+            tempF: Math.round((tempC * 9) / 5 + 32),
+            humidity,
+            wind,
+            high,
+            low,
+            condition
+          };
+        }
+      }
+    } catch (e) {
+      // Ignore network errors and return fallback
+    }
+    return null;
+  },
+
+  /**
+   * Client-side intelligent conversational fallback engine
+   * Uses WayvoraAIEngine with multilingual support, context memory, and live Open-Meteo telemetry.
    */
   async clientFallbackEngine(query, history) {
-    const qLower = query.toLowerCase().trim();
-    const contextText = history.map(h => h.content).join(" ").toLowerCase();
-
-    // 1. General conversation & greetings
-    if (/^(hi|hello|hey|hola|namaste|good\s+(morning|afternoon|evening))\b/i.test(qLower) || qLower.includes("how are you")) {
-      return "Hello! 😊 I'm doing great and ready to assist you. Whether you'd like to plan a trip, explore destinations across India or the world, check live weather, or ask questions about technology, programming, or anything else—how can I help you today?";
+    if (window.WayvoraAIEngine) {
+      return await window.WayvoraAIEngine.processConversation(history, (target) => this.fetchClientLiveWeather(target));
     }
-
-    if (/^(who are you|what can you do|your name)/i.test(qLower)) {
-      return "I'm your **Wayvora AI Assistant & Travel Concierge**! 🌍\n\nI can:\n- Curate customized day-by-day itineraries anywhere across India and worldwide\n- Recommend hotels, local dining, attractions, and transit options with realistic budgets in Indian Rupees (₹) and global currencies\n- Fetch verified real-time weather forecasts via Open-Meteo\n- Answer general questions about coding, technology, science, and more!";
-    }
-
-    // 2. Weather queries
-    if (qLower.includes("weather") || qLower.includes("temperature") || qLower.includes("forecast") || qLower.includes("rain in")) {
-      const match = qLower.match(/(?:weather|temperature|forecast|climate)\s+(?:in|for|at|of)?\s*([a-zA-Z\s]+?)(?:\s+today|\s+now|\s+tomorrow|\?|$)/i);
-      const place = match ? match[1].trim() : (qLower.includes("goa") ? "goa" : (qLower.includes("kerala") ? "kerala" : ""));
-
-      if (place) {
-        try {
-          // Direct client fetch to Open-Meteo geocoding & forecast
-          const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1`);
-          const geoData = await geoRes.json();
-          if (geoData && geoData.results && geoData.results.length > 0) {
-            const loc = geoData.results[0];
-            const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`);
-            const wData = await wRes.json();
-            if (wData && wData.current) {
-              const tempC = Math.round(wData.current.temperature_2m);
-              const humidity = wData.current.relative_humidity_2m;
-              const wind = wData.current.wind_speed_10m;
-              const high = wData.daily ? Math.round(wData.daily.temperature_2m_max[0]) : tempC + 2;
-              const low = wData.daily ? Math.round(wData.daily.temperature_2m_min[0]) : tempC - 3;
-              return `🌤️ **Live Weather for ${loc.name}, ${loc.country || ''}**\n\n- **Current Temperature**: ${tempC}°C (${Math.round((tempC * 9)/5 + 32)}°F)\n- **Today's Range**: Low ${low}°C / High ${high}°C\n- **Relative Humidity**: ${humidity}%\n- **Wind Speed**: ${wind} km/h\n\n*Verified data directly from Open-Meteo.* Would you like packing suggestions or an itinerary for ${loc.name}?`;
-            }
-          }
-        } catch (e) {
-          // If network fetch fails, provide accurate seasonal weather info
-        }
-        return `For **${place.charAt(0).toUpperCase() + place.slice(1)}**, please check the **Live Weather** tool in the top navigation bar for instant real-time satellite telemetry!`;
-      }
-    }
-
-    // 3. Technical / Programming queries
-    if (qLower.includes("python") && (qLower.includes("program") || qLower.includes("code") || qLower.includes("write") || qLower.includes("script"))) {
-      return `Here is a clean, beginner-friendly **Python program** demonstrating functions, loops, and data structures:
-
-\`\`\`python
-# Wayvora Travel Expense Calculator in Python
-
-def calculate_trip_budget(destination, days, daily_cost_inr):
-    total = days * daily_cost_inr
-    print(f"--- Trip Estimate for {destination} ---")
-    print(f"Duration: {days} days")
-    print(f"Estimated Daily Cost: ₹{daily_cost_inr:,}")
-    print(f"Total Estimated Budget: ₹{total:,}")
-    return total
-
-# Example: 3-day getaway to Goa
-dest = "Goa"
-duration = 3
-daily_rate = 3500  # ₹3,500/day per person
-
-total_budget = calculate_trip_budget(dest, duration, daily_rate)
-\`\`\`
-
-**Output:**
-\`\`\`
---- Trip Estimate for Goa ---
-Duration: 3 days
-Estimated Daily Cost: ₹3,500
-Total Estimated Budget: ₹10,500
-\`\`\`
-
-Would you like me to explain how any specific part of this code works or adapt it for another use case?`;
-    }
-
-    if (qLower.includes("artificial intelligence") || qLower.includes("what is ai") || (qLower.includes("explain") && qLower.includes("ai"))) {
-      return `**Artificial Intelligence (AI)** refers to computer systems engineered to perform tasks that typically require human intelligence. These include visual perception, speech recognition, decision-making, and natural language understanding.
-
-### Key Pillars of Modern AI:
-1. **Machine Learning (ML)**: Algorithms trained on vast datasets to identify patterns and make predictions without explicit rules.
-2. **Deep Learning & Neural Networks**: Multi-layered artificial networks inspired by the human brain that power computer vision and large language models (LLMs).
-3. **Natural Language Processing (NLP)**: Enables machines to interpret, generate, and converse in human language.
-
-### Real-World Applications:
-- **Travel & Logistics**: Dynamic pricing, intelligent route planning, and conversational travel concierges (like Wayvora!).
-- **Healthcare**: Medical imaging analysis and accelerated drug discovery.
-- **Autonomous Systems**: Self-driving vehicles and robotic automation.
-
-Would you like to explore how neural networks function or discuss how AI is utilized in specific industries?`;
-    }
-
-    // 4. Belagavi waterfalls
-    if ((qLower.includes("belagavi") || qLower.includes("belgaum")) && (qLower.includes("waterfall") || qLower.includes("falls") || qLower.includes("suggest"))) {
-      return `Here are the top scenic waterfalls near **Belagavi (Belgaum), Karnataka**:
-
-1. **Gokak Falls (~65 km from Belagavi)**
-   - Known as the *"Niagara of Karnataka"*, the Ghataprabha River plunges 52 meters over a rugged sandstone cliff. Features a historic hanging suspension bridge.
-
-2. **Godchinamalaki Falls (~55 km from Belagavi)**
-   - A stunning stepped waterfall on the Markandeya River cascading in two picturesque tiers amidst verdant greenery.
-
-3. **Vajrapoha Falls (~50 km from Belagavi, Jamboti / Khanapur forest)**
-   - Located deep in the Western Ghats along the Mandovi River, falling over 200 meters. Ideal for trekking and adventure enthusiasts.
-
-4. **Tillari Falls (~60 km from Belagavi, near Tillari Dam & Nagar)**
-   - Nestled along the Karnataka-Maharashtra-Goa border, surrounded by misty canyons and deep gorges.
-
-💡 **Best Season to Visit**: July to October (post-monsoon) when water volume is at its peak.`;
-    }
-
-    // 5. Kerala best time to visit & itinerary
-    if (qLower.includes("kerala")) {
-      if (qLower.includes("time") || qLower.includes("season") || qLower.includes("when to visit")) {
-        return `The **best time to visit Kerala** is from **September to March** (autumn and winter):
-
-- **Peak Season (October to March)**: Pleasant, crisp weather with temperatures between 22°C and 30°C. Perfect for Alleppey backwater houseboats, Munnar tea hills, and Kovalam beaches.
-- **Monsoon Season (June to August)**: Renowned worldwide for traditional **Ayurvedic rejuvenation treatments (Panchakarma)**, lush green landscapes, and off-peak hotel discounts.
-- **Summer (April to May)**: Warm and humid along coastal plains (32°C - 36°C), but hill stations like Munnar and Wayanad remain pleasantly cool.
-
-Would you like a customized Kerala itinerary or budget breakdown?`;
-      }
-    }
-
-    // 6. Follow-up budget reduction
-    if (qLower.includes("cheaper") || qLower.includes("budget") || qLower.includes("reduce cost") || qLower.includes("less money")) {
-      const destName = contextText.includes("goa") ? "Goa" : (contextText.includes("kerala") ? "Kerala" : (contextText.includes("belagavi") ? "Belagavi" : "your trip"));
-      return `Here is how you can make your **${destName}** trip significantly more affordable without compromising on the experience:
-
-1. **Transportation**:
-   - Take government KSRTC/Kadamba state buses or sleeper trains rather than private taxis (saves ₹2,500 - ₹4,000).
-   - Rent a self-driven 2-wheeler/scooter (₹350 - ₹500/day) for local commuting instead of hiring cabs.
-
-2. **Accommodation**:
-   - Stay in boutique hostels (Zostel, goSTOPS) or licensed family homestays (₹800 - ₹1,500/night) instead of luxury beach resorts (₹5,000+/night).
-
-3. **Dining**:
-   - Savor authentic local coastal thalis and local bakeries (₹150 - ₹300/meal) rather than tourist-heavy beachfront cafes (₹800 - ₹1,200/meal).
-
-4. **Activities**:
-   - Enjoy free natural attractions: scenic public beaches, fort walks (Chapora/Aguada), waterfalls, and heritage trails.
-
-💰 **Adjusted Daily Budget**: ~₹1,200 - ₹1,800/day per person (down from ₹3,500 - ₹5,000/day).`;
-    }
-
-    // 7. Goa 3-day itinerary
-    if (qLower.includes("goa") && (qLower.includes("3") || qLower.includes("day") || qLower.includes("trip") || qLower.includes("plan") || qLower.includes("itinerary"))) {
-      return `Here is a curated **3-Day Goa Itinerary** blending coastal bliss, heritage, and nightlife:
-
-### Day 1: North Goa Coastal Vibes & Sunsets
-- **Morning**: Relax at Anjuna or Vagator Beach; enjoy breakfast at an open-air cafe.
-- **Afternoon**: Trek up to historic **Chapora Fort** for panoramic Arabian Sea vistas.
-- **Evening**: Catch the sunset at Curlies/Thalassa and explore the vibrant Saturday Night Market or Tito's Lane.
-
-### Day 2: Heritage, Culture & Old Goa
-- **Morning**: Tour UNESCO World Heritage sites: **Basilica of Bom Jesus** and **Sé Cathedral**.
-- **Afternoon**: Walk the colorful Portuguese Latin Quarter of **Fontainhas, Panaji**.
-- **Evening**: 1-hour sunset river cruise on the Mandovi River with Goan folk music.
-
-### Day 3: Serene South Goa & Pristine Shores
-- **Morning**: Drive down to picturesque **Palolem Beach**; rent a kayak.
-- **Afternoon**: Visit historic **Cabo de Rama Fort** overlooking secluded cliffs.
-- **Evening**: Relax with fresh Goan seafood curry at a quiet beach shack in Colva or Benaulim.
-
-💰 **Estimated Budget**:
-- Budget: ₹1,500 - ₹2,200/day (hostels, scooters, local thalis)
-- Mid-range: ₹3,500 - ₹6,000/day (3-star resort, cab hire, beach shacks)
-
-Would you like recommendations for family resorts or adventure water sports?`;
-    }
-
-    // 8. Worldwide destinations: Tokyo, Japan
-    if (qLower.includes("tokyo") || (qLower.includes("japan") && (qLower.includes("trip") || qLower.includes("itinerary") || qLower.includes("budget")))) {
-      return `🗼 **Tokyo, Japan Travel Plan & Native JPY (¥) Budget**\n\n` +
-        `• **Highlights**: Sensō-ji Temple, Shibuya Crossing, Meiji Shrine, teamLab Planets, Tsukiji Outer Market.\n` +
-        `• **Daily Budget Breakdown** (Japanese Yen):\n` +
-        `  - Accommodation: ¥12,000 – ¥18,000/night\n` +
-        `  - Dining: ¥4,000 – ¥7,000/day\n` +
-        `  - Metro transit: ¥1,200 – ¥2,000/day\n` +
-        `  - Attractions: ¥2,500 – ¥5,000/day\n` +
-        `💰 **Est. Daily Total**: **¥22,000 JPY/person** (~$144 USD / ₹12,450 INR).\n\n` +
-        `You can plan this trip and track daily expenses in JPY in the **Trip Planner**!`;
-    }
-
-    // 9. Worldwide destinations: Paris, France
-    if (qLower.includes("paris") || (qLower.includes("france") && (qLower.includes("trip") || qLower.includes("itinerary") || qLower.includes("budget")))) {
-      return `🥐 **Paris, France Travel Plan & Native EUR (€) Budget**\n\n` +
-        `• **Highlights**: Eiffel Tower, Musée du Louvre, Montmartre, Cathédrale Notre-Dame, Seine Cruise.\n` +
-        `• **Daily Budget Breakdown** (Euros):\n` +
-        `  - Accommodation: €75 – €130/night\n` +
-        `  - Food & Bistros: €35 – €60/day\n` +
-        `  - Metro Transit: €8 – €15/day\n` +
-        `  - Sights & Passes: €20 – €40/day\n` +
-        `💰 **Est. Daily Total**: **€150 EUR/person** (~$163 USD / ₹14,100 INR).\n\n` +
-        `You can convert all amounts to your preferred currency using the top-bar Currency Selector!`;
-    }
-
-    // 10. Currency conversion / exchange rates
-    if (qLower.includes("convert") || qLower.includes("exchange rate") || (qLower.includes("currency") && qLower.includes("rate"))) {
-      return `💱 **Wayvora Live Exchange Rates & Currency Conversion**\n\n` +
-        `Wayvora automatically converts destination budgets using live global exchange rates:\n` +
-        `• **1 USD ($)** ≈ ₹86.50 INR | €0.92 EUR | £0.79 GBP | ¥153 JPY | A$1.52 AUD\n` +
-        `• **1 EUR (€)** ≈ ₹94.02 INR | $1.087 USD | £0.859 GBP | ¥166.3 JPY\n` +
-        `• **1 GBP (£)** ≈ ₹109.50 INR | $1.266 USD | €1.165 EUR\n\n` +
-        `Use the **Currency Selector** in the navigation bar to convert the entire website into your preferred currency!`;
-    }
-
-    // 11. General travel fallback
-    return `I would be happy to help you with that! In **Wayvora**, you can explore 13 curated worldwide destinations across India, Europe, Asia, and the Americas, monitor live weather, bookmark your favorites, and build customizable day-by-day itineraries with estimated budgets in their native currencies (e.g. INR ₹, USD $, EUR €, JPY ¥, GBP £) or your preferred display currency.
-
-Could you share more details—such as your destination, travel dates, budget, or specific interests?`;
+    return "Hello! I am your **Wayvora AI Assistant & Travel Concierge**. How can I help you plan your next trip or answer your travel questions today?";
   }
 };
 

@@ -228,35 +228,67 @@ class StateManager {
   // =================== CLOUD FIRESTORE SYNC ===================
 
   async syncFromFirestore(userId) {
-    if (!window.AuthService || !AuthService.firestore || !userId) return;
+    if (!userId) return;
 
     try {
-      const db = AuthService.firestore;
-      
-      // 1. Sync Favourites
-      const userDoc = await db.collection("users").doc(userId).get();
-      if (userDoc.exists) {
-        const data = userDoc.data();
-        if (Array.isArray(data.favourites)) {
-          localStorage.setItem(this.getFavKey(), JSON.stringify(data.favourites));
-          this.notify("favourites", { favourites: data.favourites });
-        }
-      }
+      // 1. Prefer reusable FirestoreService
+      if (window.FirestoreService && FirestoreService.isAvailable()) {
+        const [favs, remoteTrips] = await Promise.all([
+          FirestoreService.getUserFavourites(userId).catch(e => {
+            console.warn("FirestoreService: favourites pull error:", e);
+            return null;
+          }),
+          FirestoreService.getUserTrips(userId).catch(e => {
+            console.warn("FirestoreService: trips pull error:", e);
+            return null;
+          })
+        ]);
 
-      // 2. Sync Trips
-      const tripsSnapshot = await db.collection("users").doc(userId).collection("trips").get();
-      if (!tripsSnapshot.empty) {
-        const remoteTrips = [];
-        tripsSnapshot.forEach(doc => {
-          remoteTrips.push(doc.data());
-        });
-        if (remoteTrips.length > 0) {
+        if (Array.isArray(favs) && favs.length > 0) {
+          localStorage.setItem(this.getFavKey(), JSON.stringify(favs));
+          this.notify("favourites", { favourites: favs });
+        }
+
+        if (Array.isArray(remoteTrips) && remoteTrips.length > 0) {
           localStorage.setItem(this.getTripsKey(), JSON.stringify(remoteTrips));
           if (!localStorage.getItem(this.getActiveTripKey())) {
             localStorage.setItem(this.getActiveTripKey(), remoteTrips[0].id);
           }
           this.notify("trips", remoteTrips);
           this.notify("activeTrip", this.getActiveTrip());
+        }
+        return;
+      }
+
+      // 2. Direct fallback if AuthService.firestore is ready but FirestoreService is absent
+      if (window.AuthService && AuthService.firestore) {
+        const db = AuthService.firestore;
+        
+        // Sync Favourites
+        const userDoc = await db.collection("users").doc(userId).get();
+        if (userDoc.exists) {
+          const data = userDoc.data();
+          if (Array.isArray(data.favourites)) {
+            localStorage.setItem(this.getFavKey(), JSON.stringify(data.favourites));
+            this.notify("favourites", { favourites: data.favourites });
+          }
+        }
+
+        // Sync Trips
+        const tripsSnapshot = await db.collection("users").doc(userId).collection("trips").get();
+        if (!tripsSnapshot.empty) {
+          const remoteTrips = [];
+          tripsSnapshot.forEach(doc => {
+            remoteTrips.push(doc.data());
+          });
+          if (remoteTrips.length > 0) {
+            localStorage.setItem(this.getTripsKey(), JSON.stringify(remoteTrips));
+            if (!localStorage.getItem(this.getActiveTripKey())) {
+              localStorage.setItem(this.getActiveTripKey(), remoteTrips[0].id);
+            }
+            this.notify("trips", remoteTrips);
+            this.notify("activeTrip", this.getActiveTrip());
+          }
         }
       }
     } catch (err) {
@@ -265,40 +297,58 @@ class StateManager {
   }
 
   async syncFavsToFirestore(list) {
-    if (!window.AuthService || !AuthService.firestore || !this.currentUserId) return;
+    if (!this.currentUserId) return;
     try {
-      await AuthService.firestore.collection("users").doc(this.currentUserId).set({
-        favourites: list,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
+      if (window.FirestoreService && FirestoreService.isAvailable()) {
+        await FirestoreService.saveUserFavourites(this.currentUserId, list);
+        return;
+      }
+      if (window.AuthService && AuthService.firestore) {
+        await AuthService.firestore.collection("users").doc(this.currentUserId).set({
+          favourites: list,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
     } catch (e) {
       console.warn("Firestore fav sync error:", e);
     }
   }
 
   async syncTripToFirestore(trip) {
-    if (!window.AuthService || !AuthService.firestore || !this.currentUserId) return;
+    if (!this.currentUserId || !trip) return;
     try {
-      await AuthService.firestore
-        .collection("users")
-        .doc(this.currentUserId)
-        .collection("trips")
-        .doc(trip.id)
-        .set(trip, { merge: true });
+      if (window.FirestoreService && FirestoreService.isAvailable()) {
+        await FirestoreService.saveUserTrip(this.currentUserId, trip);
+        return;
+      }
+      if (window.AuthService && AuthService.firestore) {
+        await AuthService.firestore
+          .collection("users")
+          .doc(this.currentUserId)
+          .collection("trips")
+          .doc(trip.id)
+          .set(trip, { merge: true });
+      }
     } catch (e) {
       console.warn("Firestore trip sync error:", e);
     }
   }
 
   async syncDeleteTripFromFirestore(tripId) {
-    if (!window.AuthService || !AuthService.firestore || !this.currentUserId) return;
+    if (!this.currentUserId || !tripId) return;
     try {
-      await AuthService.firestore
-        .collection("users")
-        .doc(this.currentUserId)
-        .collection("trips")
-        .doc(tripId)
-        .delete();
+      if (window.FirestoreService && FirestoreService.isAvailable()) {
+        await FirestoreService.deleteUserTrip(this.currentUserId, tripId);
+        return;
+      }
+      if (window.AuthService && AuthService.firestore) {
+        await AuthService.firestore
+          .collection("users")
+          .doc(this.currentUserId)
+          .collection("trips")
+          .doc(tripId)
+          .delete();
+      }
     } catch (e) {
       console.warn("Firestore trip delete error:", e);
     }
@@ -480,7 +530,12 @@ class StateManager {
       endDate: endDate || "",
       travelers: Number(travelers) || 1,
       currency: resolvedCurrency,
-      targetBudget: Number(targetBudget) || 1000,
+      targetBudget: (function(b) {
+        if (typeof b === "number" && !isNaN(b) && b > 0) return b;
+        const cleaned = String(b || "").replace(/[^0-9.]/g, "");
+        const parsed = parseFloat(cleaned);
+        return (!isNaN(parsed) && parsed > 0) ? parsed : 1000;
+      })(targetBudget),
       days: days,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

@@ -1,20 +1,8 @@
 /**
- * Wayvora - Firebase Configuration & Setup Validation
+ * Wayvora - Firebase Configuration & Centralized Single-Instance Initializer
  * 
- * -------------------------------------------------------------
- * FIREBASE SETUP INSTRUCTIONS:
- * -------------------------------------------------------------
- * 1. Visit the Firebase Console: https://console.firebase.google.com/
- * 2. Create a new Firebase project (or use an existing one) named "Wayvora" (or your choice).
- * 3. In the project dashboard, click "Add app" and choose the Web icon (</>).
- * 4. Register your app (e.g., "Wayvora Web") and copy the firebaseConfig values below.
- * 5. In Firebase Console, go to "Authentication" -> "Sign-in method":
- *    - Enable "Email/Password" sign-in provider.
- * 6. (Optional for Cloud Sync) Go to "Firestore Database":
- *    - Click "Create database" (in production or test mode).
- *    - Location: choose your nearest region.
- * 7. Replace the placeholder values in the `FIREBASE_CONFIG` object below with your actual keys.
- * -------------------------------------------------------------
+ * Project: WAYVORA (wayvora-96c3d)
+ * Initializes Firebase App, Firebase Authentication, and Cloud Firestore once.
  */
 
 const FIREBASE_CONFIG = {
@@ -28,8 +16,7 @@ const FIREBASE_CONFIG = {
 };
 
 /**
- * Checks whether the user has provided real Firebase credentials.
- * Returns true only if apiKey and projectId are non-empty and not the default template values.
+ * Checks whether the Firebase credentials are valid and present.
  */
 function isFirebaseConfigured() {
   if (!FIREBASE_CONFIG || typeof FIREBASE_CONFIG !== "object") return false;
@@ -37,50 +24,108 @@ function isFirebaseConfigured() {
   const { apiKey, projectId } = FIREBASE_CONFIG;
   if (!apiKey || !projectId) return false;
   
-  // Verify it doesn't still have the placeholder string
   if (apiKey.includes("YOUR_FIREBASE_API_KEY") || apiKey.trim() === "") return false;
   if (projectId.includes("YOUR_PROJECT_ID") || projectId.trim() === "") return false;
   
   return true;
 }
 
-// Initialize Firebase App, Auth, and Firestore instances if the SDK is available
+// Single-instance holders
 let firebaseApp = null;
 let firebaseAuth = null;
 let firestore = null;
+let firebaseAnalytics = null;
+let _firebaseInitialized = false;
 
-if (typeof firebase !== "undefined" && firebase.initializeApp && isFirebaseConfigured()) {
+/**
+ * Single-point initialization for Firebase
+ * Ensures Firebase is initialized only once across the entire application lifecycle.
+ */
+function initFirebase() {
+  if (_firebaseInitialized && firebaseApp) {
+    return {
+      app: firebaseApp,
+      auth: firebaseAuth,
+      firestore: firestore,
+      analytics: firebaseAnalytics
+    };
+  }
+
+  if (typeof firebase === "undefined" || !firebase.initializeApp) {
+    console.warn("Firebase SDK is not loaded in this environment.");
+    return null;
+  }
+
+  if (!isFirebaseConfigured()) {
+    console.warn("Firebase configuration is missing or incomplete.");
+    return null;
+  }
+
   try {
+    // Check if an app has already been initialized on the firebase global
     if (!firebase.apps || !firebase.apps.length) {
       firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
     } else {
       firebaseApp = firebase.app();
     }
 
-    if (firebase.auth) {
+    if (typeof firebase.auth === "function") {
       firebaseAuth = firebase.auth();
     }
 
-    if (firebase.firestore) {
+    if (typeof firebase.firestore === "function") {
       firestore = firebase.firestore();
     }
+
+    if (typeof firebase.analytics === "function" && FIREBASE_CONFIG.measurementId) {
+      try {
+        firebaseAnalytics = firebase.analytics();
+      } catch (analyticsErr) {
+        // Analytics can fail quietly if blocked by browser ad/privacy extensions
+      }
+    }
+
+    _firebaseInitialized = true;
+
+    // Attach to global window object
+    window.firebaseApp = firebaseApp;
+    window.firebaseAuth = firebaseAuth;
+    window.firestore = firestore;
+    window.firebaseAnalytics = firebaseAnalytics;
+
+    console.log("Firebase initialized successfully (single instance) for project:", FIREBASE_CONFIG.projectId);
+
+    return {
+      app: firebaseApp,
+      auth: firebaseAuth,
+      firestore: firestore,
+      analytics: firebaseAnalytics
+    };
   } catch (err) {
-    console.warn("Firebase auto-init in firebase-config.js:", err);
+    console.error("Firebase single-point initialization error:", err);
+    return null;
   }
 }
 
-// Attach globally for browser and module access
+// Auto-initialize once on script load if Firebase SDK is present
+if (typeof firebase !== "undefined" && firebase.initializeApp && isFirebaseConfigured()) {
+  initFirebase();
+}
+
+// Expose on global window object
 window.FIREBASE_CONFIG = FIREBASE_CONFIG;
 window.isFirebaseConfigured = isFirebaseConfigured;
+window.initFirebase = initFirebase;
 window.firebaseApp = firebaseApp;
 window.firebaseAuth = firebaseAuth;
 window.firestore = firestore;
 
-// Export instances for module / test runners
+// Export for module/test runners
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FIREBASE_CONFIG,
     isFirebaseConfigured,
+    initFirebase,
     firebaseApp,
     firebaseAuth,
     firestore

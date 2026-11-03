@@ -19,7 +19,11 @@ function findServiceAccountKey() {
   const candidates = [
     process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
     path.join(__dirname, '..', 'secrets', 'wayvora-96c3d-firebase-adminsdk-fbsvc-d05817b4b7.json'),
+    path.join(__dirname, '..', '..', 'secrets', 'wayvora-96c3d-firebase-adminsdk-fbsvc-d05817b4b7.json'),
+    path.join(process.cwd(), 'secrets', 'wayvora-96c3d-firebase-adminsdk-fbsvc-d05817b4b7.json'),
     path.join(__dirname, '..', 'secrets', 'serviceAccountKey.json'),
+    path.join(__dirname, '..', '..', 'secrets', 'serviceAccountKey.json'),
+    path.join(process.cwd(), 'secrets', 'serviceAccountKey.json'),
     path.join(__dirname, '..', 'serviceAccountKey.json')
   ].filter(Boolean);
 
@@ -29,18 +33,25 @@ function findServiceAccountKey() {
     }
   }
 
-  // Scan secrets directory for any adminsdk json file
-  const secretsDir = path.join(__dirname, '..', 'secrets');
-  if (fs.existsSync(secretsDir)) {
-    try {
-      const files = fs.readdirSync(secretsDir);
-      for (const file of files) {
-        if (file.endsWith('.json') && (file.includes('adminsdk') || file.includes('wayvora'))) {
-          return path.join(secretsDir, file);
+  // Scan potential secrets directories for any adminsdk json file
+  const searchDirs = [
+    path.join(__dirname, '..', 'secrets'),
+    path.join(__dirname, '..', '..', 'secrets'),
+    path.join(process.cwd(), 'secrets')
+  ];
+
+  for (const secretsDir of searchDirs) {
+    if (fs.existsSync(secretsDir)) {
+      try {
+        const files = fs.readdirSync(secretsDir);
+        for (const file of files) {
+          if (file.endsWith('.json') && (file.includes('adminsdk') || file.includes('wayvora'))) {
+            return path.join(secretsDir, file);
+          }
         }
+      } catch (e) {
+        // Ignore directory scan errors
       }
-    } catch (e) {
-      // Ignore directory scan errors
     }
   }
 
@@ -62,7 +73,20 @@ function initFirebaseAdmin() {
 
     if (getApps().length > 0) {
       adminApp = getApps()[0];
-    } else {
+    } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      // Support Vercel environment variable with raw service account JSON
+      try {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        adminApp = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: serviceAccount.project_id || 'wayvora-96c3d'
+        });
+      } catch (parseErr) {
+        console.warn('Firebase Admin: Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable:', parseErr.message);
+      }
+    }
+
+    if (!adminApp && getApps().length === 0) {
       const keyPath = findServiceAccountKey();
       if (keyPath) {
         const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));

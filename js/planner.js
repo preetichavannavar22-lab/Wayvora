@@ -413,7 +413,7 @@ const PlannerController = {
             </div>
             <div class="form-group">
               <label for="page-plan-budget">Target Budget (<span id="page-plan-curr-label">EUR</span>)</label>
-              <input type="number" id="page-plan-budget" class="form-control" min="50" step="50" value="1200" required />
+              <input type="number" id="page-plan-budget" class="form-control" min="1" step="1" value="1200" inputmode="numeric" required />
               <div id="page-affordability-hint" class="text-xs text-muted mt-1" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;min-height:18px;"></div>
             </div>
           </div>
@@ -461,6 +461,52 @@ const PlannerController = {
     destSelect?.addEventListener("change", updatePageCurrency);
     updatePageCurrency();
 
+    // Recalculate affordability on budget, travelers, or date input
+    const updatePageAffordability = () => {
+      if (!destSelect || !hintEl || !budgetInput) return;
+      const destId = destSelect.value;
+      const d = window.DataService ? DataService.getDestinationById(destId) : null;
+      const curr = window.CurrencyService ? CurrencyService.getDestinationCurrency(d || destId) : "USD";
+      const travelers = Math.max(1, parseInt(document.getElementById("page-plan-travelers")?.value || 1, 10));
+      const sDate = new Date(document.getElementById("page-plan-start")?.value || Date.now());
+      const eDate = new Date(document.getElementById("page-plan-end")?.value || Date.now());
+      let days = 4;
+      if (!isNaN(sDate.getTime()) && !isNaN(eDate.getTime()) && eDate >= sDate) {
+        days = Math.max(1, Math.round((eDate - sDate) / (1000 * 60 * 60 * 24)));
+      }
+      const rawBudget = budgetInput.value;
+      let userBudget = 1200;
+      if (rawBudget !== undefined && rawBudget !== null && String(rawBudget).trim() !== "") {
+        const cleaned = String(rawBudget).replace(/[^0-9.]/g, "");
+        const parsed = parseFloat(cleaned);
+        if (!isNaN(parsed) && parsed > 0) userBudget = parsed;
+      }
+      if (window.CurrencyService && d) {
+        const check = CurrencyService.checkAffordability(d || destId, days, travelers, userBudget, curr);
+        hintEl.innerHTML = `<span class="badge ${check.badgeClass}" style="font-size:0.75rem;">${check.statusLabel}</span> <span class="text-xs text-muted">Baseline ~${check.baselineTotalFormatted} (${days} days, ${travelers} pax)</span>`;
+      }
+    };
+
+    ["page-plan-budget", "page-plan-travelers", "page-plan-start", "page-plan-end"].forEach(id => {
+      document.getElementById(id)?.addEventListener("input", updatePageAffordability);
+      document.getElementById(id)?.addEventListener("change", updatePageAffordability);
+    });
+
+    if (budgetInput) {
+      budgetInput.addEventListener("paste", (e) => {
+        const pasteData = (e.clipboardData || window.clipboardData)?.getData("text");
+        if (pasteData) {
+          const cleaned = pasteData.replace(/[^0-9.]/g, "");
+          if (cleaned && !isNaN(parseFloat(cleaned))) {
+            e.preventDefault();
+            budgetInput.value = cleaned;
+            budgetInput.dispatchEvent(new Event("input", { bubbles: true }));
+            budgetInput.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+      });
+    }
+
     // Ask AI button listener
     document.getElementById("btn-page-ask-ai")?.addEventListener("click", () => {
       const dSelect = document.getElementById("page-plan-dest");
@@ -481,7 +527,15 @@ const PlannerController = {
       const startDate = document.getElementById("page-plan-start").value;
       const endDate = document.getElementById("page-plan-end").value;
       const travelers = document.getElementById("page-plan-travelers").value;
-      const targetBudget = document.getElementById("page-plan-budget").value;
+      const rawBudget = document.getElementById("page-plan-budget")?.value;
+      let targetBudget = 1200;
+      if (rawBudget !== undefined && rawBudget !== null && String(rawBudget).trim() !== "") {
+        const cleaned = String(rawBudget).replace(/[^0-9.]/g, "");
+        const parsed = parseFloat(cleaned);
+        if (!isNaN(parsed) && parsed > 0) {
+          targetBudget = parsed;
+        }
+      }
 
       const runGeneration = () => {
         const selectedDest = window.DataService ? DataService.getDestinationById(destId) : null;

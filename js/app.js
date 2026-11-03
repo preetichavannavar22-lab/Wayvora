@@ -40,6 +40,7 @@ const App = {
     // Initial renders
     this.renderHomeSections();
     this.updateFavouritesBadge();
+    this.initCustomerInquiriesTracking();
 
     // Listen to hash and popstate changes for browser history navigation
     window.addEventListener("hashchange", () => this.handleRoute());
@@ -213,16 +214,30 @@ const App = {
       });
     });
 
-    // 12. Contact Support Form Submission
+    // 12. Contact Support Form Submission (Integrated with Cloud Firestore & Resend API)
     const contactForm = document.getElementById("form-contact-support");
     if (contactForm) {
-      contactForm.addEventListener("submit", (e) => {
+      contactForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        const name = document.getElementById("contact-name")?.value.trim();
-        const email = document.getElementById("contact-email")?.value.trim();
-        const message = document.getElementById("contact-message")?.value.trim();
-        const banner = document.getElementById("contact-success-banner");
+        const nameInput = document.getElementById("contact-name");
+        const emailInput = document.getElementById("contact-email");
+        const categoryInput = document.getElementById("contact-category");
+        const messageInput = document.getElementById("contact-message");
+        const submitBtn = document.getElementById("btn-submit-contact");
 
+        const successBanner = document.getElementById("contact-success-banner");
+        const errorBanner = document.getElementById("contact-error-banner");
+
+        const name = nameInput?.value.trim() || "";
+        const email = emailInput?.value.trim() || "";
+        const category = categoryInput?.value || "General Inquiry";
+        const message = messageInput?.value.trim() || "";
+
+        // Reset banners
+        if (successBanner) successBanner.style.display = "none";
+        if (errorBanner) errorBanner.style.display = "none";
+
+        // Validate required inputs
         if (!name || !email || !message) {
           if (window.UI && typeof window.UI.showToast === "function") {
             window.UI.showToast("Please fill out your name, email, and message.", "warning");
@@ -230,16 +245,268 @@ const App = {
           return;
         }
 
-        if (banner) {
-          banner.innerHTML = `<strong>✓ Thank you, ${name}!</strong> Your message has been received. Our support team will follow up at <em>${email}</em> within 24 hours.`;
-          banner.style.display = "block";
-          banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          if (window.UI && typeof window.UI.showToast === "function") {
+            window.UI.showToast("Please provide a valid email address.", "warning");
+          }
+          return;
         }
 
-        contactForm.reset();
+        // Set button loading state
+        const originalBtnText = submitBtn ? submitBtn.textContent : "Send Message to Support";
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending Support Request...';
+        }
 
-        if (window.UI && typeof window.UI.showToast === "function") {
-          window.UI.showToast("Message sent successfully!", "success");
+        const escapeHtml = (str) => {
+          if (!str) return "";
+          return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        };
+
+        try {
+          const currentUser = window.firebaseAuth && window.firebaseAuth.currentUser;
+          const userId = currentUser ? currentUser.uid : null;
+          let idToken = null;
+          if (currentUser && typeof currentUser.getIdToken === "function") {
+            try {
+              idToken = await currentUser.getIdToken();
+            } catch (tErr) {
+              // Token retrieval non-fatal
+            }
+          }
+
+          const headers = { "Content-Type": "application/json" };
+          if (idToken) headers["Authorization"] = `Bearer ${idToken}`;
+
+          // Dispatch securely to backend API (never exposes RESEND_API_KEY)
+          const response = await fetch("/api/support", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({ name, email, category, message, userId })
+          });
+
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (jsonErr) {
+            data = null;
+          }
+
+          if (!response.ok || !data || !data.success) {
+            const errDetail = (data && data.error) || `Server error (HTTP ${response.status})`;
+            if (errorBanner) {
+              errorBanner.className = "alert alert-danger mb-3";
+              errorBanner.innerHTML = `<strong>✕ Submission Failed:</strong> ${escapeHtml(errDetail)}. Please check your internet connection or email us directly at <a href="mailto:support@wayvora.com" class="font-bold underline">support@wayvora.com</a>.`;
+              errorBanner.style.display = "block";
+              errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast("Failed to submit support request.", "error");
+            }
+            return;
+          }
+
+          // Successful submission to backend/Firestore
+          const shortTicketId = (data.ticketId || "TICKET").slice(0, 8).toUpperCase();
+          const userEmailResult = (data.emailDelivery && data.emailDelivery.userEmail) || {};
+          const isUserEmailSent = !!userEmailResult.success;
+          const isSandboxRestriction = !!userEmailResult.isSandboxRestriction;
+
+          contactForm.reset();
+
+          if (isUserEmailSent) {
+            // Requirement 9: Only display "Email sent" when delivery submission actually succeeds!
+            if (successBanner) {
+              successBanner.innerHTML = `<strong>✓ Support Request Submitted &amp; Confirmation Email Sent!</strong><br>Thank you, <strong>${escapeHtml(name)}</strong>. Ticket <strong>#${shortTicketId}</strong> has been created, and an official confirmation has been delivered to <em>${escapeHtml(email)}</em>. Our team will review your inquiry and follow up within 24–48 hours.`;
+              successBanner.style.display = "block";
+              successBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast("Support ticket created and confirmation email sent!", "success");
+            }
+          } else if (isSandboxRestriction) {
+            // Resend testing sandbox constraint accurately explained
+            if (errorBanner) {
+              errorBanner.className = "alert alert-warning mb-3";
+              errorBanner.innerHTML = `<strong>⚠️ Support Request Saved in Database (#${shortTicketId}):</strong><br>${escapeHtml(data.message || 'Support inquiry was securely recorded in Firestore.')}<br><span class="text-xs text-muted block mt-1">Note: Resend test domain (<em>onboarding@resend.dev</em>) can only deliver to the verified account email until a production domain is configured. Our administrators can still view and reply to your ticket in the portal.</span>`;
+              errorBanner.style.display = "block";
+              errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast("Support ticket saved. Test email restricted to Resend account.", "warning");
+            }
+          } else {
+            // Saved to Firestore but email sending failed or unconfigured
+            if (errorBanner) {
+              errorBanner.className = "alert alert-warning mb-3";
+              errorBanner.innerHTML = `<strong>⚠️ Support Request Saved in Database (#${shortTicketId}):</strong><br>${escapeHtml(data.message || 'Your inquiry was recorded in our database.')}<br><span class="text-xs text-muted block mt-1">Email notification could not be delivered at this time (${escapeHtml(userEmailResult.error || data.firestoreError || 'Pending email configuration')}). Our support team will review your inquiry in the administrative dashboard.</span>`;
+              errorBanner.style.display = "block";
+              errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast("Inquiry saved, but email notification could not be delivered.", "warning");
+            }
+          }
+
+        } catch (fetchErr) {
+          console.error("Support form submission error:", fetchErr);
+          // Fallback: If backend is completely offline, attempt client-side Firestore submission
+          let clientSaved = false;
+          if (window.FirestoreService && typeof FirestoreService.submitSupportRequest === "function" && FirestoreService.isAvailable()) {
+            try {
+              const clientDoc = await FirestoreService.submitSupportRequest({ name, email, message, category });
+              clientSaved = true;
+              contactForm.reset();
+              const shortId = (clientDoc.id || "").slice(0, 8).toUpperCase();
+              if (errorBanner) {
+                errorBanner.className = "alert alert-warning mb-3";
+                errorBanner.innerHTML = `<strong>⚠️ Ticket Saved Locally (#${shortId}):</strong> Your inquiry was saved to Cloud Firestore, but the backend email server could not be reached. Our support team will review your ticket in the portal.`;
+                errorBanner.style.display = "block";
+                errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              }
+              if (window.UI && typeof window.UI.showToast === "function") {
+                window.UI.showToast("Inquiry saved to database (email server offline).", "warning");
+              }
+            } catch (fsErr) {
+              clientSaved = false;
+            }
+          }
+
+          if (!clientSaved) {
+            if (errorBanner) {
+              errorBanner.className = "alert alert-danger mb-3";
+              errorBanner.innerHTML = `<strong>✕ Connection Error:</strong> Could not connect to the support server (${escapeHtml(fetchErr.message)}). Please check your internet connection or email us directly at <a href="mailto:support@wayvora.com" class="font-bold underline">support@wayvora.com</a>.`;
+              errorBanner.style.display = "block";
+              errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast("Failed to submit support request. Network error.", "error");
+            }
+          }
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalBtnText;
+          }
+        }
+      });
+    }
+  },
+
+  /**
+   * Customer Support Ticket Tracking (Isolated strictly to the logged-in customer's own tickets)
+   */
+  initCustomerInquiriesTracking() {
+    const unauthBox = document.getElementById("customer-inquiries-unauth");
+    const authBox = document.getElementById("customer-inquiries-auth");
+    const countBadge = document.getElementById("customer-inquiries-count");
+    const listEl = document.getElementById("customer-inquiries-list");
+    const loginBtn = document.getElementById("customer-inquiries-login-btn");
+
+    if (loginBtn) {
+      loginBtn.addEventListener("click", () => {
+        if (window.AuthService && typeof AuthService.openAuthModal === "function") {
+          AuthService.openAuthModal("Sign in to track your support tickets and replies");
+        }
+      });
+    }
+
+    let userUnsub = null;
+
+    if (window.AuthService && typeof AuthService.onAuthStateChanged === "function") {
+      AuthService.onAuthStateChanged((user) => {
+        if (userUnsub) {
+          userUnsub();
+          userUnsub = null;
+        }
+
+        if (user && user.uid) {
+          if (unauthBox) unauthBox.style.display = "none";
+          if (authBox) authBox.style.display = "block";
+
+          // Auto-fill traveler registered email and name in support form if empty
+          const contactEmailEl = document.getElementById("contact-email");
+          const contactNameEl = document.getElementById("contact-name");
+          if (contactEmailEl && !contactEmailEl.value && user.email) {
+            contactEmailEl.value = user.email;
+          }
+          if (contactNameEl && !contactNameEl.value && user.displayName) {
+            contactNameEl.value = user.displayName;
+          }
+
+          if (window.FirestoreService && typeof FirestoreService.subscribeToUserSupportRequests === "function") {
+            userUnsub = FirestoreService.subscribeToUserSupportRequests(user.uid, (tickets) => {
+              if (countBadge) {
+                countBadge.textContent = `${tickets.length} Ticket${tickets.length === 1 ? '' : 's'}`;
+              }
+
+              if (!listEl) return;
+              if (tickets.length === 0) {
+                listEl.innerHTML = `
+                  <p class="text-sm text-muted text-center py-3" style="text-align: center; color: #64748b; padding: 1.5rem 0;">
+                    You have not submitted any inquiries yet. If you need travel advice or assistance, submit the form above!
+                  </p>
+                `;
+                return;
+              }
+
+              listEl.innerHTML = tickets.map(t => {
+                const status = (t.status || "open").toLowerCase();
+                let statusBadgeClass = "badge-warning";
+                let statusLabel = "Under Review";
+                if (status === "in_progress") {
+                  statusBadgeClass = "badge-info";
+                  statusLabel = "In Progress";
+                } else if (status === "resolved") {
+                  statusBadgeClass = "badge-success";
+                  statusLabel = "Resolved";
+                }
+
+                let dateStr = "Recently";
+                if (t.createdAt) {
+                  const d = t.createdAt.toDate ? t.createdAt.toDate() : new Date(t.createdAt);
+                  if (!isNaN(d.getTime())) {
+                    dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                  }
+                }
+
+                const hasReply = !!t.adminReply;
+
+                return `
+                  <div class="customer-ticket-item" style="border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; padding: 1rem; margin-top: 0.75rem; background: var(--bg-subtle, #f8fafc);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                      <div>
+                        <strong style="font-size: 0.95rem;">${t.category || "General Inquiry"}</strong>
+                        <span class="text-xs text-muted block" style="font-size: 0.75rem; color: #64748b; display: block;">Submitted on ${dateStr}</span>
+                      </div>
+                      <span class="admin-status-badge ${statusBadgeClass}">${statusLabel}</span>
+                    </div>
+
+                    <p style="font-size: 0.9rem; color: #475569; margin: 0.5rem 0; line-height: 1.5; white-space: pre-wrap;">${t.message || ""}</p>
+
+                    ${hasReply ? `
+                      <div class="customer-ticket-reply-box" style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; border-radius: 6px; padding: 0.75rem; margin-top: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem; color: #059669; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.35rem;">
+                          <span>✓ Official Response from WAYVORA Support:</span>
+                        </div>
+                        <p style="font-size: 0.9rem; color: #1e293b; margin: 0; line-height: 1.5;">${t.adminReply}</p>
+                      </div>
+                    ` : `
+                      <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #64748b; display: flex; align-items: center; gap: 0.35rem;">
+                        <span>⏳</span> Ticket is currently under review by our support team.
+                      </div>
+                    `}
+                  </div>
+                `;
+              }).join("");
+            });
+          }
+        } else {
+          if (unauthBox) unauthBox.style.display = "block";
+          if (authBox) authBox.style.display = "none";
+          if (countBadge) countBadge.textContent = "0 Tickets";
         }
       });
     }
@@ -347,6 +614,13 @@ const App = {
       setTimeout(() => {
         if (window.AuthService) AuthService.openAuthModal(null, "signup");
       }, 50);
+    } else if (hash === "admin" || hash === "admin-dashboard") {
+      hash = "home";
+      setTimeout(() => {
+        if (window.AdminDashboard && typeof window.AdminDashboard.open === "function") {
+          window.AdminDashboard.open();
+        }
+      }, 150);
     }
 
     const validViews = ["home", "explore", "planner", "favourites", "about", "india", "destination"];

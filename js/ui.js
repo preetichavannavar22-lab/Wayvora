@@ -1174,7 +1174,7 @@ const UI = {
             </div>
             <div class="form-group">
               <label for="trip-budget">Target Budget (<span id="trip-budget-currency-label">${currentDestCurrency}</span>)</label>
-              <input type="number" id="trip-budget" class="form-control" min="10" step="50" value="${initialBudget}" inputmode="numeric" />
+              <input type="number" id="trip-budget" class="form-control" min="1" step="1" value="${initialBudget}" inputmode="numeric" required />
               <div id="trip-affordability-hint" class="text-xs text-muted mt-1" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;min-height:20px;"></div>
             </div>
           </div>
@@ -1264,6 +1264,23 @@ const UI = {
       modal.querySelector(`#${id}`)?.addEventListener("change", updateAffordabilityPreview);
     });
 
+    // Handle formatted values (commas, currency symbols) on paste
+    const budgetInputEl = modal.querySelector("#trip-budget");
+    if (budgetInputEl) {
+      budgetInputEl.addEventListener("paste", (e) => {
+        const pasteData = (e.clipboardData || window.clipboardData)?.getData("text");
+        if (pasteData) {
+          const cleaned = pasteData.replace(/[^0-9.]/g, "");
+          if (cleaned && !isNaN(parseFloat(cleaned))) {
+            e.preventDefault();
+            budgetInputEl.value = cleaned;
+            budgetInputEl.dispatchEvent(new Event("input", { bubbles: true }));
+            budgetInputEl.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+      });
+    }
+
     // Run once on open
     updateAffordabilityPreview();
 
@@ -1306,7 +1323,15 @@ const UI = {
       const startDate = document.getElementById("trip-start-date").value;
       const endDate = document.getElementById("trip-end-date").value;
       const travelers = document.getElementById("trip-travelers").value;
-      const targetBudget = document.getElementById("trip-budget").value;
+      const rawBudget = document.getElementById("trip-budget")?.value;
+      let targetBudget = 1000;
+      if (rawBudget !== undefined && rawBudget !== null && String(rawBudget).trim() !== "") {
+        const cleaned = String(rawBudget).replace(/[^0-9.]/g, "");
+        const parsed = parseFloat(cleaned);
+        if (!isNaN(parsed) && parsed > 0) {
+          targetBudget = parsed;
+        }
+      }
 
       const runTripGeneration = () => {
         const selectedDest = DataService.getDestinationById(destId);
