@@ -266,8 +266,14 @@ const App = {
         };
 
         try {
-          const currentUser = window.firebaseAuth && window.firebaseAuth.currentUser;
+          const authUser = (window.AuthService && typeof window.AuthService.getCurrentUser === "function")
+            ? window.AuthService.getCurrentUser()
+            : null;
+          const fbUser = window.firebaseAuth && window.firebaseAuth.currentUser;
+          const currentUser = fbUser || authUser;
           const userId = currentUser ? currentUser.uid : null;
+          const registeredEmail = (currentUser && currentUser.email) ? currentUser.email.trim().toLowerCase() : null;
+
           let idToken = null;
           if (currentUser && typeof currentUser.getIdToken === "function") {
             try {
@@ -284,7 +290,7 @@ const App = {
           const response = await fetch("/api/support", {
             method: "POST",
             headers: headers,
-            body: JSON.stringify({ name, email, category, message, userId })
+            body: JSON.stringify({ name, email, category, message, userId, registeredEmail })
           });
 
           let data = null;
@@ -296,6 +302,7 @@ const App = {
 
           if (!response.ok || !data || !data.success) {
             const errDetail = (data && data.error) || `Server error (HTTP ${response.status})`;
+            if (successBanner) successBanner.style.display = "none";
             if (errorBanner) {
               errorBanner.className = "alert alert-danger mb-3";
               errorBanner.innerHTML = `<strong>✕ Submission Failed:</strong> ${escapeHtml(errDetail)}. Please check your internet connection or email us directly at <a href="mailto:support@wayvora.com" class="font-bold underline">support@wayvora.com</a>.`;
@@ -308,46 +315,21 @@ const App = {
             return;
           }
 
-          // Successful submission to backend/Firestore
-          const shortTicketId = (data.ticketId || "TICKET").slice(0, 8).toUpperCase();
-          const userEmailResult = (data.emailDelivery && data.emailDelivery.userEmail) || {};
-          const isUserEmailSent = !!userEmailResult.success;
-          const isSandboxRestriction = !!userEmailResult.isSandboxRestriction;
-
+          // Successful submission to backend/Firestore (TASK 1: Exact confirmation message required)
+          const CONFIRMATION_MSG = "Your request has been submitted successfully! You'll receive a response within 24 hours.";
           contactForm.reset();
 
-          if (isUserEmailSent) {
-            // Requirement 9: Only display "Email sent" when delivery submission actually succeeds!
-            if (successBanner) {
-              successBanner.innerHTML = `<strong>✓ Support Request Submitted &amp; Confirmation Email Sent!</strong><br>Thank you, <strong>${escapeHtml(name)}</strong>. Ticket <strong>#${shortTicketId}</strong> has been created, and an official confirmation has been delivered to <em>${escapeHtml(email)}</em>. Our team will review your inquiry and follow up within 24–48 hours.`;
-              successBanner.style.display = "block";
-              successBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            }
-            if (window.UI && typeof window.UI.showToast === "function") {
-              window.UI.showToast("Support ticket created and confirmation email sent!", "success");
-            }
-          } else if (isSandboxRestriction) {
-            // Resend testing sandbox constraint accurately explained
-            if (errorBanner) {
-              errorBanner.className = "alert alert-warning mb-3";
-              errorBanner.innerHTML = `<strong>⚠️ Support Request Saved in Database (#${shortTicketId}):</strong><br>${escapeHtml(data.message || 'Support inquiry was securely recorded in Firestore.')}<br><span class="text-xs text-muted block mt-1">Note: Resend test domain (<em>onboarding@resend.dev</em>) can only deliver to the verified account email until a production domain is configured. Our administrators can still view and reply to your ticket in the portal.</span>`;
-              errorBanner.style.display = "block";
-              errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            }
-            if (window.UI && typeof window.UI.showToast === "function") {
-              window.UI.showToast("Support ticket saved. Test email restricted to Resend account.", "warning");
-            }
-          } else {
-            // Saved to Firestore but email sending failed or unconfigured
-            if (errorBanner) {
-              errorBanner.className = "alert alert-warning mb-3";
-              errorBanner.innerHTML = `<strong>⚠️ Support Request Saved in Database (#${shortTicketId}):</strong><br>${escapeHtml(data.message || 'Your inquiry was recorded in our database.')}<br><span class="text-xs text-muted block mt-1">Email notification could not be delivered at this time (${escapeHtml(userEmailResult.error || data.firestoreError || 'Pending email configuration')}). Our support team will review your inquiry in the administrative dashboard.</span>`;
-              errorBanner.style.display = "block";
-              errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            }
-            if (window.UI && typeof window.UI.showToast === "function") {
-              window.UI.showToast("Inquiry saved, but email notification could not be delivered.", "warning");
-            }
+          if (errorBanner) {
+            errorBanner.style.display = "none";
+          }
+          if (successBanner) {
+            successBanner.className = "alert alert-success mb-3";
+            successBanner.innerHTML = `<strong>✓</strong> ${CONFIRMATION_MSG}`;
+            successBanner.style.display = "block";
+            successBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+          if (window.UI && typeof window.UI.showToast === "function") {
+            window.UI.showToast(CONFIRMATION_MSG, "success");
           }
 
         } catch (fetchErr) {
@@ -356,18 +338,19 @@ const App = {
           let clientSaved = false;
           if (window.FirestoreService && typeof FirestoreService.submitSupportRequest === "function" && FirestoreService.isAvailable()) {
             try {
-              const clientDoc = await FirestoreService.submitSupportRequest({ name, email, message, category });
+              await FirestoreService.submitSupportRequest({ name, email, message, category });
               clientSaved = true;
               contactForm.reset();
-              const shortId = (clientDoc.id || "").slice(0, 8).toUpperCase();
-              if (errorBanner) {
-                errorBanner.className = "alert alert-warning mb-3";
-                errorBanner.innerHTML = `<strong>⚠️ Ticket Saved Locally (#${shortId}):</strong> Your inquiry was saved to Cloud Firestore, but the backend email server could not be reached. Our support team will review your ticket in the portal.`;
-                errorBanner.style.display = "block";
-                errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              const CONFIRMATION_MSG = "Your request has been submitted successfully! You'll receive a response within 24 hours.";
+              if (errorBanner) errorBanner.style.display = "none";
+              if (successBanner) {
+                successBanner.className = "alert alert-success mb-3";
+                successBanner.innerHTML = `<strong>✓</strong> ${CONFIRMATION_MSG}`;
+                successBanner.style.display = "block";
+                successBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
               }
               if (window.UI && typeof window.UI.showToast === "function") {
-                window.UI.showToast("Inquiry saved to database (email server offline).", "warning");
+                window.UI.showToast(CONFIRMATION_MSG, "success");
               }
             } catch (fsErr) {
               clientSaved = false;
@@ -375,6 +358,7 @@ const App = {
           }
 
           if (!clientSaved) {
+            if (successBanner) successBanner.style.display = "none";
             if (errorBanner) {
               errorBanner.className = "alert alert-danger mb-3";
               errorBanner.innerHTML = `<strong>✕ Connection Error:</strong> Could not connect to the support server (${escapeHtml(fetchErr.message)}). Please check your internet connection or email us directly at <a href="mailto:support@wayvora.com" class="font-bold underline">support@wayvora.com</a>.`;
@@ -472,28 +456,65 @@ const App = {
                   }
                 }
 
-                const hasReply = !!t.adminReply;
+                const escapeHtmlText = (str) => {
+                  if (!str) return "";
+                  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+                };
+
+                const hasReply = !!(t.adminReply || (Array.isArray(t.replyHistory) && t.replyHistory.length > 0));
+                let repliesHtml = "";
+
+                if (Array.isArray(t.replyHistory) && t.replyHistory.length > 0) {
+                  repliesHtml = t.replyHistory.map(r => {
+                    const rText = typeof r === "string" ? r : (r.reply || "");
+                    let rDateStr = "";
+                    if (r && r.repliedAt) {
+                      const rd = new Date(r.repliedAt);
+                      if (!isNaN(rd.getTime())) {
+                        rDateStr = " • " + rd.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                      }
+                    }
+                    const senderLabel = (r && r.sentBy) ? r.sentBy : "WAYVORA Support Team";
+                    return `
+                      <div class="customer-ticket-reply-box" style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; border-radius: 6px; padding: 0.75rem; margin-top: 0.6rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; color: #059669; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.35rem;">
+                          <span>✓ Official Response from ${escapeHtmlText(senderLabel)}${rDateStr}:</span>
+                        </div>
+                        <p style="font-size: 0.9rem; color: #1e293b; margin: 0; line-height: 1.5; white-space: pre-wrap;">${escapeHtmlText(rText)}</p>
+                      </div>
+                    `;
+                  }).join("");
+                } else if (t.adminReply) {
+                  let rDateStr = "";
+                  if (t.repliedAt) {
+                    const rd = new Date(t.repliedAt);
+                    if (!isNaN(rd.getTime())) {
+                      rDateStr = " • " + rd.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                    }
+                  }
+                  repliesHtml = `
+                    <div class="customer-ticket-reply-box" style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; border-radius: 6px; padding: 0.75rem; margin-top: 0.6rem;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; color: #059669; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.35rem;">
+                        <span>✓ Official Response from WAYVORA Support${rDateStr}:</span>
+                      </div>
+                      <p style="font-size: 0.9rem; color: #1e293b; margin: 0; line-height: 1.5; white-space: pre-wrap;">${escapeHtmlText(t.adminReply)}</p>
+                    </div>
+                  `;
+                }
 
                 return `
                   <div class="customer-ticket-item" style="border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; padding: 1rem; margin-top: 0.75rem; background: var(--bg-subtle, #f8fafc);">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
                       <div>
-                        <strong style="font-size: 0.95rem;">${t.category || "General Inquiry"}</strong>
+                        <strong style="font-size: 0.95rem;">${escapeHtmlText(t.category || "General Inquiry")}</strong>
                         <span class="text-xs text-muted block" style="font-size: 0.75rem; color: #64748b; display: block;">Submitted on ${dateStr}</span>
                       </div>
                       <span class="admin-status-badge ${statusBadgeClass}">${statusLabel}</span>
                     </div>
 
-                    <p style="font-size: 0.9rem; color: #475569; margin: 0.5rem 0; line-height: 1.5; white-space: pre-wrap;">${t.message || ""}</p>
+                    <p style="font-size: 0.9rem; color: #475569; margin: 0.5rem 0; line-height: 1.5; white-space: pre-wrap;">${escapeHtmlText(t.message || "")}</p>
 
-                    ${hasReply ? `
-                      <div class="customer-ticket-reply-box" style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; border-radius: 6px; padding: 0.75rem; margin-top: 0.75rem;">
-                        <div style="display: flex; align-items: center; gap: 0.4rem; color: #059669; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.35rem;">
-                          <span>✓ Official Response from WAYVORA Support:</span>
-                        </div>
-                        <p style="font-size: 0.9rem; color: #1e293b; margin: 0; line-height: 1.5;">${t.adminReply}</p>
-                      </div>
-                    ` : `
+                    ${hasReply ? repliesHtml : `
                       <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #64748b; display: flex; align-items: center; gap: 0.35rem;">
                         <span>⏳</span> Ticket is currently under review by our support team.
                       </div>

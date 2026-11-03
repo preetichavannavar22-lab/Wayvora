@@ -315,11 +315,38 @@ const AdminDashboard = {
     }
 
     document.getElementById("manage-ticket-name").textContent = ticket.name || "Traveler";
-    document.getElementById("manage-ticket-email").textContent = ticket.email || "";
+    document.getElementById("manage-ticket-email").textContent = ticket.registeredEmail || ticket.email || "";
     document.getElementById("manage-ticket-category").textContent = ticket.category || "General Inquiry";
     document.getElementById("manage-ticket-message").textContent = ticket.message || "";
     document.getElementById("manage-ticket-status").value = (ticket.status || "open").toLowerCase();
     document.getElementById("manage-ticket-reply").value = ticket.adminReply || "";
+
+    // Render previous reply history if present
+    const historyBox = document.getElementById("manage-ticket-history-box");
+    const historyList = document.getElementById("manage-ticket-history-list");
+    if (historyBox && historyList) {
+      if (Array.isArray(ticket.replyHistory) && ticket.replyHistory.length > 0) {
+        historyBox.style.display = "block";
+        historyList.innerHTML = ticket.replyHistory.map(r => {
+          const rText = typeof r === "string" ? r : (r.reply || "");
+          let rDate = "";
+          if (r && r.repliedAt) {
+            const rd = new Date(r.repliedAt);
+            if (!isNaN(rd.getTime())) {
+              rDate = rd.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+            }
+          }
+          return `
+            <div style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px; margin-bottom: 6px;">
+              <div style="font-size: 11px; color: #10b981; font-weight: 700;">✓ Official Response${rDate ? ' (' + rDate + ')' : ''}:</div>
+              <div style="font-size: 13px; color: #cbd5e1; white-space: pre-wrap; margin-top: 2px;">${this.escapeHtml(rText)}</div>
+            </div>
+          `;
+        }).join("");
+      } else {
+        historyBox.style.display = "none";
+      }
+    }
 
     // Show email dispatch channel indicator (Gmail API vs Resend)
     const channelInd = document.getElementById("manage-ticket-channel-indicator");
@@ -389,10 +416,12 @@ const AdminDashboard = {
           method: "POST",
           headers: headers,
           body: JSON.stringify({
+            action: "reply",
             ticketId: this.activeTicket.id,
+            userId: this.activeTicket.userId || null,
             adminReply: adminReply,
             status: status,
-            travelerEmail: this.activeTicket.email,
+            travelerEmail: this.activeTicket.registeredEmail || this.activeTicket.email,
             travelerName: this.activeTicket.name,
             category: this.activeTicket.category,
             originalMessage: this.activeTicket.message
@@ -1060,6 +1089,11 @@ const AdminDashboard = {
             </select>
           </div>
 
+          <div id="manage-ticket-history-box" class="mt-3" style="display: none;">
+            <span class="text-xs text-muted font-bold block mb-1">Previous Reply History:</span>
+            <div id="manage-ticket-history-list" style="background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.75rem; max-height: 140px; overflow-y: auto;"></div>
+          </div>
+
           <div class="manage-form-group mt-3">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <label for="manage-ticket-reply" class="text-xs font-bold block" style="margin: 0;">Official Administrator Response</label>
@@ -1069,11 +1103,13 @@ const AdminDashboard = {
             <span class="text-xs text-muted mt-1 block">This response will be securely delivered to the customer's portal and dispatched by email.</span>
           </div>
         </div>
-        <div class="admin-submodal-footer" style="display: flex; align-items: center; justify-content: space-between;">
-          <a id="manage-ticket-mailto" href="#" class="btn btn-outline btn-sm" target="_blank" title="Open your email client to reply directly">
-            ✉️ Email Traveler Directly
-          </a>
-          <div style="display: flex; gap: 8px;">
+        <div class="admin-submodal-footer">
+          <div class="admin-submodal-footer-left">
+            <a id="manage-ticket-mailto" href="#" class="btn btn-outline btn-sm" target="_blank" title="Open your email client to reply directly">
+              ✉️ Email Traveler Directly
+            </a>
+          </div>
+          <div class="admin-submodal-footer-right">
             <button type="button" class="btn btn-outline btn-sm" id="manage-ticket-cancel-btn">Cancel</button>
             <button type="button" class="btn btn-primary btn-sm" id="manage-ticket-save-btn">Save Changes &amp; Send Reply</button>
           </div>

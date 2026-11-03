@@ -416,7 +416,7 @@ const FirestoreService = {
 
     const currentUser = (window.firebaseAuth && window.firebaseAuth.currentUser)
       ? window.firebaseAuth.currentUser
-      : null;
+      : ((window.AuthService && typeof window.AuthService.getCurrentUser === "function") ? window.AuthService.getCurrentUser() : null);
 
     const timestamp = (typeof firebase !== "undefined" && firebase.firestore)
       ? firebase.firestore.FieldValue.serverTimestamp()
@@ -428,6 +428,7 @@ const FirestoreService = {
       category: category || "General Inquiry",
       message: (message || "").trim(),
       status: "open", // Initial status: 'open', 'in_progress', 'resolved'
+      replyHistory: [],
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -435,6 +436,9 @@ const FirestoreService = {
     // Attach user ID if submitted by an authenticated traveler
     if (currentUser && currentUser.uid) {
       payload.userId = currentUser.uid;
+      if (currentUser.email) {
+        payload.registeredEmail = currentUser.email.trim().toLowerCase();
+      }
     }
 
     const docRef = await db.collection("support_requests").add(payload);
@@ -511,9 +515,17 @@ const FirestoreService = {
     };
 
     if (status) payload.status = status;
-    if (adminReply !== undefined) {
+    if (adminReply !== undefined && adminReply.trim()) {
       payload.adminReply = adminReply.trim();
       payload.repliedAt = timestamp;
+      if (typeof firebase !== "undefined" && firebase.firestore) {
+        payload.replyHistory = firebase.firestore.FieldValue.arrayUnion({
+          reply: adminReply.trim(),
+          repliedAt: new Date().toISOString(),
+          status: status || 'open',
+          sentBy: 'Administrator'
+        });
+      }
     }
 
     await db.collection("support_requests").doc(requestId).update(payload);
