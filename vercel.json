@@ -13,6 +13,22 @@
       "destination": "/api/currency.js"
     },
     {
+      "source": "/api/support/:path*",
+      "destination": "/api/support.js"
+    },
+    {
+      "source": "/api/support",
+      "destination": "/api/support.js"
+    },
+    {
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth.js"
+    },
+    {
+      "source": "/api/auth",
+      "destination": "/api/auth.js"
+    },
+    {
       "source": "/((?!api/|css/|js/|images/|public/|favicon\\.ico).*)",
       "destination": "/index.html"
     }

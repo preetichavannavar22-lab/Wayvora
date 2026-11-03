@@ -10,6 +10,41 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const AIEngine = require('./js/ai-engine.js');
+const handleSupportRequest = require('./api/support.js');
+const handleAuthRequest = require('./api/auth.js');
+
+/**
+ * Lightweight local environment file loader (.env / .env.local)
+ * Populates process.env securely on the backend without third-party dependencies.
+ */
+function loadEnvFile(envPath) {
+  if (!fs.existsSync(envPath)) return;
+  try {
+    const content = fs.readFileSync(envPath, 'utf8');
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      const jsonSplit = val.indexOf('","');
+      if (jsonSplit !== -1) {
+        val = val.slice(0, jsonSplit).trim();
+      }
+      val = val.replace(/^["'\[\]]+|["'\[\]]+$/g, '').trim();
+      if (process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read env file:', e.message);
+  }
+}
+
+// Automatically load local environment variables if present
+loadEnvFile(path.join(__dirname, '.env'));
+loadEnvFile(path.join(__dirname, '.env.local'));
 
 const PORT = 5500;
 const PUBLIC_DIR = path.resolve(__dirname);
@@ -544,6 +579,58 @@ const server = http.createServer(async (req, res) => {
   }
 
   // -------------------------------------------------------------
+  // API ENDPOINT: /api/support & /api/support/reply
+  // Handles traveler customer support submissions & admin replies with Resend email
+  // -------------------------------------------------------------
+  if (pathname === '/api/support' || pathname.startsWith('/api/support/')) {
+    if (req.method === 'GET' || req.method === 'OPTIONS' || req.method === 'HEAD') {
+      req.body = {};
+      return handleSupportRequest(req, res);
+    }
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        req.body = body ? JSON.parse(body) : {};
+      } catch (e) {
+        req.body = {};
+      }
+      return handleSupportRequest(req, res);
+    });
+    return;
+  }
+
+  // -------------------------------------------------------------
+  // API ENDPOINT: /api/auth/* & OAuth2 Callbacks (Google & Gmail API)
+  // Handles /api/auth/google/url, /api/auth/google/callback, /api/auth/google/status, /api/auth/google/test
+  // Also catches callbacks directed to /callback or root with ?code= or ?error=
+  // -------------------------------------------------------------
+  const isAuthRoute = (
+    pathname === '/api/auth' ||
+    pathname.startsWith('/api/auth/') ||
+    pathname === '/callback' ||
+    ((pathname === '/' || pathname === '/index.html') && parsedUrl.query && (parsedUrl.query.code || parsedUrl.query.error))
+  );
+
+  if (isAuthRoute) {
+    if (req.method === 'GET' || req.method === 'OPTIONS' || req.method === 'HEAD') {
+      req.body = {};
+      return handleAuthRequest(req, res);
+    }
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        req.body = body ? JSON.parse(body) : {};
+      } catch (e) {
+        req.body = {};
+      }
+      return handleAuthRequest(req, res);
+    });
+    return;
+  }
+
+  // -------------------------------------------------------------
   // STATIC FILES SERVING
   // -------------------------------------------------------------
   let reqPath = pathname;
@@ -594,5 +681,6 @@ module.exports = {
   server,
   fetchLiveWeather,
   fetchLiveCurrency,
-  processChatRequest
+  processChatRequest,
+  handleSupportRequest
 };

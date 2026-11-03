@@ -5,6 +5,10 @@ serviceAccountKey.json
 scripts/serviceAccountKey.json
 *.key.json
 *.pem
+*tokens*.json
+gmail-token*.json
+oauth*.json
+tokens/
 .env
 .env.local
 
