@@ -94,7 +94,8 @@ async function handleCreateSupportRequest(req, res, body) {
   const email = (body.email || '').trim();
   const message = (body.message || '').trim();
   const category = (body.category || 'General Inquiry').trim();
-  const userId = body.userId || null;
+  let userId = body.userId || null;
+  let registeredEmail = (body.registeredEmail || '').trim().toLowerCase() || null;
   const existingTicketId = body.ticketId || null;
 
   // 1. Validation
@@ -122,7 +123,6 @@ async function handleCreateSupportRequest(req, res, body) {
   }
 
   // 2. Fetch authenticated user registered email if userId is available
-  let registeredEmail = null;
   if (userId) {
     try {
       const userRecord = await getUserAuthRecord(userId);
@@ -131,6 +131,46 @@ async function handleCreateSupportRequest(req, res, body) {
       }
     } catch (e) {
       console.warn('[SupportAPI] Could not fetch user from Auth:', e.message);
+    }
+  }
+
+  // 2b. If no userId provided in body, check Authorization Bearer token
+  if (!userId) {
+    const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split('Bearer ')[1].trim();
+        const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
+        if (auth) {
+          const decoded = await auth.verifyIdToken(token);
+          if (decoded && decoded.uid) {
+            userId = decoded.uid;
+            if (!registeredEmail && decoded.email) {
+              registeredEmail = decoded.email.trim().toLowerCase();
+            }
+          }
+        }
+      } catch (tokenErr) {
+        // Non-fatal
+      }
+    }
+  }
+
+  // 2c. If still no userId, check if email matches a registered traveler in Firebase Auth
+  if (!userId && email) {
+    try {
+      const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
+      if (auth) {
+        const userRecord = await auth.getUserByEmail(email.toLowerCase());
+        if (userRecord && userRecord.uid) {
+          userId = userRecord.uid;
+          if (!registeredEmail && userRecord.email) {
+            registeredEmail = userRecord.email.trim().toLowerCase();
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal if guest
     }
   }
 
@@ -286,7 +326,7 @@ async function handleAdminReply(req, res, body) {
 
   // Ensure reply is delivered to user's registered email address from Firebase Auth if available
   let registeredEmail = null;
-  const targetUserId = (ticket && ticket.userId) || body.userId;
+  let targetUserId = (ticket && ticket.userId) || body.userId || null;
   if (targetUserId) {
     try {
       const userRecord = await getUserAuthRecord(targetUserId);
@@ -295,6 +335,25 @@ async function handleAdminReply(req, res, body) {
       }
     } catch (e) {
       console.warn('[SupportAPI] Auth lookup error for reply:', e.message);
+    }
+  }
+
+  // If ticket still doesn't have a userId, check if traveler email matches a registered user in Firebase Auth
+  if (!targetUserId && (body.travelerEmail || (ticket && ticket.email))) {
+    try {
+      const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
+      if (auth) {
+        const emailToLookup = (body.travelerEmail || (ticket && ticket.email)).toLowerCase();
+        const userRecord = await auth.getUserByEmail(emailToLookup);
+        if (userRecord && userRecord.uid) {
+          targetUserId = userRecord.uid;
+          if (!registeredEmail && userRecord.email) {
+            registeredEmail = userRecord.email.trim().toLowerCase();
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal
     }
   }
 
@@ -314,26 +373,14 @@ async function handleAdminReply(req, res, body) {
     return;
   }
 
-  // Update ticket in Firestore
-  let firestoreUpdated = false;
-  try {
-    await updateSupportTicket(ticketId, {
-      adminReply: adminReply.trim(),
-      status: status,
-      repliedAt: new Date().toISOString()
-    });
-    firestoreUpdated = true;
-  } catch (fsErr) {
-    console.warn('[SupportAPI] Firestore reply update error:', fsErr.message);
-  }
-
   // Dispatch official reply email to traveler (Priority: Gmail API if connected -> Resend fallback)
+  const now = new Date().toISOString();
   let emailResult = { success: false, error: 'Not executed' };
   let providerUsed = 'none';
 
   try {
     const gmailStatus = await getGmailStatus();
-    if (gmailStatus.isConnected) {
+    if (gmailStatus && gmailStatus.isConnected) {
       console.log(`[SupportAPI] Sending reply via Gmail API from ${gmailStatus.connectedEmail} to ${travelerEmail}`);
       emailResult = await sendAdminReplyWithGmail({
         ticketId,
@@ -349,11 +396,12 @@ async function handleAdminReply(req, res, body) {
       }
     }
 
-    // Fallback to Resend if Gmail is not connected or if Gmail delivery failed
+    // Resend email dispatch (Primary if Gmail is not connected, or Fallback if Gmail delivery failed)
     if (!emailResult.success) {
       if (providerUsed === 'gmail') {
         console.warn('[SupportAPI] Gmail delivery failed, attempting fallback to Resend:', emailResult.error);
       }
+      console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Resend...`);
       const resendResult = await sendAdminReplyToCustomer({
         ticketId,
         travelerName,
@@ -363,34 +411,55 @@ async function handleAdminReply(req, res, body) {
         category,
         status
       });
-      if (resendResult.success || !emailResult.error) {
-        emailResult = resendResult;
-        providerUsed = 'resend';
-      }
+      emailResult = resendResult;
+      providerUsed = 'resend';
     }
   } catch (eErr) {
+    console.error('[SupportAPI] Exception during email dispatch:', eErr);
     emailResult = { success: false, error: eErr.message };
   }
 
-  // Update email delivery status in Firestore with verified audit
-  if (firestoreUpdated) {
-    try {
-      await updateSupportTicket(ticketId, {
-        replyEmailStatus: {
-          sent: !!emailResult.success,
-          verified: !!emailResult.verified,
-          provider: providerUsed,
-          id: emailResult.id || null,
-          recipient: travelerEmail,
-          sender: emailResult.sender || (providerUsed === 'gmail' ? 'wayvora.admin@gmail.com' : 'WAYVORA Support'),
-          error: emailResult.error || null,
-          isSandboxRestriction: !!emailResult.isSandboxRestriction,
-          sentAt: new Date().toISOString()
-        }
-      });
-    } catch (e) {
-      // Non-fatal
+  const replyEntry = {
+    reply: adminReply.trim(),
+    repliedAt: now,
+    status: status,
+    sentBy: 'WAYVORA Support Team',
+    provider: providerUsed
+  };
+
+  // Update ticket in Firestore (saving reply, status, associating userId, and preserving replyHistory)
+  let firestoreUpdated = false;
+  try {
+    const { FieldValue } = require('firebase-admin/firestore');
+    const updatePayload = {
+      adminReply: adminReply.trim(),
+      status: status,
+      repliedAt: now,
+      replyHistory: FieldValue.arrayUnion(replyEntry),
+      replyEmailStatus: {
+        sent: !!emailResult.success,
+        verified: !!emailResult.verified,
+        provider: providerUsed,
+        id: emailResult.id || null,
+        recipient: travelerEmail,
+        sender: emailResult.sender || (providerUsed === 'gmail' ? 'wayvora.admin@gmail.com' : 'WAYVORA Support'),
+        error: emailResult.error || null,
+        isSandboxRestriction: !!emailResult.isSandboxRestriction,
+        sentAt: now
+      }
+    };
+
+    if (targetUserId && (!ticket || !ticket.userId)) {
+      updatePayload.userId = targetUserId;
     }
+    if (registeredEmail && (!ticket || !ticket.registeredEmail)) {
+      updatePayload.registeredEmail = registeredEmail;
+    }
+
+    await updateSupportTicket(ticketId, updatePayload);
+    firestoreUpdated = true;
+  } catch (fsErr) {
+    console.warn('[SupportAPI] Firestore reply update error:', fsErr.message);
   }
 
   const replyResponse = {
@@ -402,7 +471,7 @@ async function handleAdminReply(req, res, body) {
     emailDelivery: emailResult,
     message: emailResult.success
       ? `Official response recorded and email successfully sent to traveler via ${providerUsed === 'gmail' ? 'Gmail API' : 'Resend'}.`
-      : `Official response recorded in database, but email delivery failed: ${emailResult.error || 'Delivery failed'}`
+      : `Official response recorded in database, but email delivery could not complete: ${emailResult.error || 'Pending delivery'}`
   };
 
   if (typeof res.status === 'function') {

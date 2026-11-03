@@ -130,6 +130,7 @@ async function saveSupportTicket({ name, email, category, message, userId = null
     category: category || 'General Inquiry',
     message: (message || '').trim(),
     status: 'open',
+    replyHistory: [],
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
   };
