@@ -74,15 +74,38 @@ function initFirebaseAdmin() {
     if (getApps().length > 0) {
       adminApp = getApps()[0];
     } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      // Support Vercel environment variable with raw service account JSON
+      // Support Vercel environment variable with raw service account JSON or base64 JSON
       try {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        let rawVal = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+        if (!rawVal.startsWith('{')) {
+          try {
+            rawVal = Buffer.from(rawVal, 'base64').toString('utf8');
+          } catch (b64Err) {
+            // Keep raw if base64 decode fails
+          }
+        }
+        const serviceAccount = JSON.parse(rawVal);
         adminApp = initializeApp({
           credential: cert(serviceAccount),
-          projectId: serviceAccount.project_id || 'wayvora-96c3d'
+          projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d'
         });
       } catch (parseErr) {
         console.warn('Firebase Admin: Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable:', parseErr.message);
+      }
+    } else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+      // Support Vercel environment variables split into individual parameters
+      try {
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+        adminApp = initializeApp({
+          credential: cert({
+            projectId: process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d',
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: privateKey
+          }),
+          projectId: process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d'
+        });
+      } catch (envKeyErr) {
+        console.warn('Firebase Admin: Failed to initialize with individual env credentials:', envKeyErr.message);
       }
     }
 
@@ -115,7 +138,7 @@ function initFirebaseAdmin() {
  * Save a new support request in Firestore
  * Collection: support_requests
  */
-async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null }) {
+async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null, source = 'support_ticket' }) {
   const { db } = initFirebaseAdmin();
   if (!db) {
     throw new Error('Firestore Database is not available on the server.');
@@ -129,6 +152,7 @@ async function saveSupportTicket({ name, email, category, message, userId = null
     registeredEmail: (registeredEmail || email || '').trim().toLowerCase(),
     category: category || 'General Inquiry',
     message: (message || '').trim(),
+    source: source || 'support_ticket',
     status: 'open',
     replyHistory: [],
     createdAt: FieldValue.serverTimestamp(),
@@ -191,13 +215,30 @@ async function getSupportTicket(ticketId) {
  * Verifies a Firebase Auth ID Token and checks admin status
  */
 async function verifyAdminAuthToken(idToken) {
+  if (!idToken || typeof idToken !== 'string') {
+    return { isValid: false, isAdmin: false, error: 'No ID token provided.' };
+  }
+
   const { auth } = initFirebaseAdmin();
-  if (!auth) return false;
+  if (!auth) {
+    return { isValid: false, isAdmin: false, error: 'Firebase Auth is not initialized on the server.' };
+  }
 
   try {
     const decodedToken = await auth.verifyIdToken(idToken);
-    const isAdmin = decodedToken.admin === true || decodedToken.uid === 'MXMCpQFfM7Zyp865ljTXiasFB2M2';
-    return { isValid: true, isAdmin, uid: decodedToken.uid, email: decodedToken.email };
+    const emailLower = (decodedToken.email || '').toLowerCase().trim();
+    const isAdmin = (
+      decodedToken.admin === true ||
+      decodedToken.uid === 'MXMCpQFfM7Zyp865ljTXiasFB2M2' ||
+      emailLower === 'wayvora.admin@gmail.com'
+    );
+
+    return {
+      isValid: true,
+      isAdmin,
+      uid: decodedToken.uid,
+      email: decodedToken.email
+    };
   } catch (err) {
     return { isValid: false, isAdmin: false, error: err.message };
   }
@@ -215,12 +256,35 @@ async function getUserAuthRecord(uid) {
     const userRecord = await auth.getUser(uid);
     return {
       uid: userRecord.uid,
-      email: userRecord.email,
+      email: userRecord.email ? userRecord.email.toLowerCase().trim() : null,
       displayName: userRecord.displayName,
       emailVerified: userRecord.emailVerified
     };
   } catch (err) {
     console.warn(`[FirebaseAdmin] Could not fetch user ${uid}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Retrieve user record from Firebase Authentication by registered email
+ */
+async function getUserAuthRecordByEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const { auth } = initFirebaseAdmin();
+  if (!auth) return null;
+
+  try {
+    const cleanEmail = email.toLowerCase().trim();
+    const userRecord = await auth.getUserByEmail(cleanEmail);
+    return {
+      uid: userRecord.uid,
+      email: userRecord.email ? userRecord.email.toLowerCase().trim() : null,
+      displayName: userRecord.displayName,
+      emailVerified: userRecord.emailVerified
+    };
+  } catch (err) {
+    // Non-fatal if user is a guest or not yet registered
     return null;
   }
 }
@@ -231,5 +295,6 @@ module.exports = {
   updateSupportTicket,
   getSupportTicket,
   verifyAdminAuthToken,
-  getUserAuthRecord
+  getUserAuthRecord,
+  getUserAuthRecordByEmail
 };

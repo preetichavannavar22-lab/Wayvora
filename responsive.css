@@ -1,0 +1,1461 @@
+/**
+ * Wayvora - Responsive Media Queries & Fluid Multi-Device Optimization
+ * Tested across Desktop (1440px+), Laptops (1024px-1280px),
+ * Tablets (768px-1024px), Standard Mobile (375px-480px), and Compact Phones (320px-360px).
+ */
+
+/* ==========================================================================
+   1. LAPTOPS & TABLETS LANDSCAPE (<= 1024px)
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .footer-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 2.5rem;
+  }
+
+  .planner-body-layout {
+    grid-template-columns: 250px 1fr;
+    gap: 1.5rem;
+  }
+
+  .grid-2-col {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .destinations-grid {
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .features-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+
+  .articles-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+
+  .modal-lg {
+    max-width: 860px;
+  }
+}
+
+/* ==========================================================================
+   2. TABLETS & COMPACT LAPTOPS (<= 992px)
+   ========================================================================== */
+@media (max-width: 992px) {
+  /* Navigation & Mobile Drawer */
+  .mobile-menu-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .desktop-auth-container {
+    display: none !important;
+  }
+
+  .navbar-right-actions .nav-currency-selector-wrapper {
+    display: none !important;
+  }
+
+  .mobile-header-user-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-drawer-header {
+    display: flex !important;
+    width: 100% !important;
+    padding-bottom: 1rem !important;
+    margin-bottom: 0.5rem !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    background: transparent !important;
+  }
+
+  .mobile-drawer-brand {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.6rem !important;
+    font-size: 1.25rem !important;
+    font-weight: 800 !important;
+    color: var(--secondary) !important;
+  }
+
+  .mobile-drawer-close-btn {
+    background: var(--bg-subtle, #f1f5f9) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-main, #0f172a) !important;
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    transition: all var(--transition-fast) !important;
+    flex-shrink: 0 !important;
+  }
+
+  .mobile-drawer-close-btn:hover {
+    background: var(--border-color) !important;
+    color: var(--danger, #ef4444) !important;
+  }
+
+  .mobile-nav-auth-block {
+    display: block !important;
+    width: 100% !important;
+    margin-top: auto !important;
+    padding-top: 1.25rem !important;
+    border-top: 1px solid var(--border-color) !important;
+    background: transparent !important;
+  }
+
+  /* Prevent background scrolling when mobile menu is open */
+  body.mobile-menu-open {
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
+    touch-action: none;
+  }
+
+  /* When drawer is open, raise navbar stacking and disable any filter/backdrop-filter inheritance */
+  .navbar.menu-open,
+  body.mobile-menu-open .navbar {
+    z-index: 9999 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Mobile Drawer Overlay - positioned behind drawer, above page content */
+  .nav-backdrop,
+  .mobile-menu-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    background: rgba(15, 23, 42, 0.5) !important;
+    z-index: 9998 !important;
+    display: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    filter: none !important;
+  }
+
+  .nav-backdrop.active,
+  .mobile-menu-overlay.active {
+    display: block !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  /* Mobile Navigation Drawer - solid, opaque, sharp text, no blurs */
+  .navbar-nav,
+  .mobile-menu-drawer {
+    position: fixed !important;
+    top: 0 !important;
+    right: -360px !important;
+    bottom: 0 !important;
+    width: min(85vw, 320px) !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    opacity: 1 !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-sizing: border-box !important;
+    isolation: isolate !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: max(1.25rem, env(safe-area-inset-top)) 1.25rem max(2rem, env(safe-area-inset-bottom)) !important;
+    box-shadow: -10px 0 35px rgba(15, 23, 42, 0.22) !important;
+    transition: right 0.32s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    z-index: 9999 !important;
+    gap: 0.5rem !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .navbar-nav.active,
+  .mobile-menu-drawer.active {
+    right: 0 !important;
+  }
+
+  /* Reset text shadows and filters on all drawer contents */
+  .navbar-nav,
+  .navbar-nav *,
+  .mobile-menu-drawer,
+  .mobile-menu-drawer * {
+    text-shadow: none !important;
+  }
+
+  /* Clean, readable nav links */
+  .navbar-nav .nav-link,
+  .mobile-menu-drawer .nav-link {
+    position: relative !important;
+    width: 100% !important;
+    padding: 0.75rem 1rem !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: #0f172a !important;
+    opacity: 1 !important;
+    border-radius: var(--radius-md) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    background: transparent !important;
+    border: none !important;
+    transition: background-color var(--transition-fast), color var(--transition-fast) !important;
+  }
+
+  .navbar-nav .nav-link:hover,
+  .mobile-menu-drawer .nav-link:hover {
+    color: var(--primary) !important;
+    background-color: var(--primary-soft) !important;
+  }
+
+  .navbar-nav .nav-link.active,
+  .mobile-menu-drawer .nav-link.active {
+    color: var(--primary) !important;
+    background-color: var(--primary-light) !important;
+    font-weight: 700 !important;
+  }
+
+  .navbar-nav button,
+  .mobile-menu-drawer button {
+    opacity: 1 !important;
+  }
+
+  /* Mobile Drawer Controls & Auth Styling */
+  .mobile-currency-row {
+    width: 100% !important;
+  }
+
+  .mobile-currency-row label {
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    color: var(--text-secondary, #475569) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  .mobile-currency-row .currency-picker-pill {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    padding: 0.55rem 0.85rem !important;
+    background: var(--bg-surface, #ffffff) !important;
+    border: 1px solid var(--border-color, #e2e8f0) !important;
+    border-radius: var(--radius-md, 8px) !important;
+    box-shadow: var(--shadow-sm) !important;
+  }
+
+  .mobile-currency-row .nav-currency-select {
+    width: 100% !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    color: var(--text-main, #0f172a) !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer !important;
+    outline: none !important;
+  }
+
+  #mobile-converter-btn {
+    width: 100% !important;
+    margin-top: 0.65rem !important;
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    padding: 0.6rem 0.85rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.4rem !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  #nav-mobile-auth-btn {
+    width: 100% !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    padding: 0.7rem 1rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.5rem !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  .mobile-user-card {
+    width: 100% !important;
+    background: var(--bg-subtle, #f8fafc) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 0.75rem !important;
+  }
+
+  #btn-user-logout-mobile {
+    width: 100% !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  /* Grid Layouts on Tablets */
+  .footer-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 2.5rem;
+  }
+
+  .tips-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  .contact-layout-grid {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+}
+
+/* ==========================================================================
+   3. TABLETS PORTRAIT & LARGE PHONES (<= 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  /* Global Layout & Padding */
+  .container {
+    padding: 0 1.25rem;
+  }
+
+  /* About Navigation Pills */
+  .about-nav-pills-wrapper {
+    justify-content: flex-start;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .about-nav-pills {
+    justify-content: flex-start;
+  }
+
+  .about-pill {
+    padding: 0.5rem 0.95rem;
+    font-size: 0.85rem;
+  }
+
+  .about-story-card {
+    padding: 2rem 1.5rem;
+  }
+
+  .developer-profile-card {
+    padding: 2.25rem 1.75rem;
+    margin-bottom: 2.75rem;
+  }
+
+  .developer-profile-grid {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+    text-align: center;
+  }
+
+  .developer-photo-col {
+    width: 100%;
+  }
+
+  .developer-photo-frame {
+    max-width: 220px;
+    margin: 0 auto;
+  }
+
+  .developer-info-col {
+    align-items: center;
+  }
+
+  .developer-heading {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .developer-name {
+    font-size: 1.75rem;
+  }
+
+  .developer-education {
+    font-size: 1.025rem;
+  }
+
+  .developer-role {
+    font-size: 0.925rem;
+    margin-bottom: 1.15rem;
+  }
+
+  .developer-quote {
+    text-align: left;
+    padding: 1.1rem 1.25rem;
+    font-size: 0.935rem;
+  }
+
+  .privacy-content-card {
+    padding: 1.75rem 1.25rem;
+  }
+
+  .philosophy-quote-box {
+    padding: 1.5rem 1.25rem;
+  }
+
+  /* Hero Section */
+  .hero-section {
+    min-height: 520px;
+    padding: 4rem 1rem 5rem;
+  }
+
+  .hero-search-box {
+    padding: 0.45rem 0.6rem 0.45rem 1rem;
+  }
+
+  .hero-search-box input {
+    font-size: 0.95rem;
+  }
+
+  .hero-search-box .btn {
+    padding: 0.65rem 1.15rem;
+    font-size: 0.9rem;
+  }
+
+  /* Explore Section Controls */
+  .filter-dropdowns-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.85rem;
+  }
+
+  .filter-selects-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .filter-select-wrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .filter-select-wrapper select {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.88rem;
+  }
+
+  #btn-reset-filters {
+    width: 100%;
+    text-align: center;
+    padding: 0.6rem;
+  }
+
+  /* Destinations & Cards Grid */
+  .destinations-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+  }
+
+  /* Trip Planner Stacked Layout */
+  .planner-body-layout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .planner-days-sidebar {
+    order: 2;
+  }
+
+  .planner-day-detail {
+    order: 1;
+  }
+
+  /* Swipeable Days Navigation Bar on Tablets & Mobile */
+  .days-list-nav {
+    display: flex;
+    overflow-x: auto;
+    gap: 0.6rem;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .days-list-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .day-nav-item {
+    flex-shrink: 0;
+    min-width: 125px;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .planner-header-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .planner-header-actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .trip-switcher-wrapper {
+    width: 100%;
+  }
+
+  .trip-switcher-wrapper select {
+    width: 100%;
+  }
+
+  /* Destination Details Page */
+  .dest-budget-tips-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  .dest-page-subcard {
+    padding: 1.5rem 1.25rem !important;
+  }
+
+  /* Modals Layout */
+  .modal-overlay {
+    padding: 1rem 0.75rem;
+  }
+
+  .modal-dialog {
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+  }
+
+  /* ==========================================================================
+     TRIP-PLANNING MODAL & MOBILE FORM RESPONSIVENESS (<= 768px)
+     ========================================================================== */
+
+  /* Modal Overlay: Top aligned with smooth touch-scrolling to accommodate mobile keyboard */
+  #trip-create-modal.modal-overlay,
+  .modal-overlay:has(.trip-create-dialog) {
+    padding: 0.75rem 0.5rem 2rem !important;
+    align-items: flex-start !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Modal Dialog Content: Viewport-based max-height (90vh/90dvh) with touch scroll */
+  #trip-create-modal .modal-dialog,
+  .trip-create-dialog,
+  .trip-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    max-height: 90vh !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    border-radius: var(--radius-lg) !important;
+    margin: 0.5rem auto !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Modal Form: Prevent horizontal overflow */
+  #trip-create-modal .modal-form,
+  .trip-create-dialog .modal-form,
+  .trip-modal .modal-form {
+    padding: 1.25rem 1rem 1.5rem !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Form Rows: Single column stacked layout on mobile */
+  #trip-create-modal .form-row-2,
+  .trip-create-dialog .form-row-2,
+  .trip-modal .form-row-2 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 0.85rem !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Form Groups & Labels: Clean wrapping without viewport overflow */
+  #trip-create-modal .form-group,
+  .trip-create-dialog .form-group,
+  .trip-modal .form-group {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    margin-bottom: 0.85rem !important;
+  }
+
+  #trip-create-modal .form-group label,
+  .trip-create-dialog .form-group label,
+  .trip-modal .form-group label {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    margin-bottom: 0.35rem !important;
+    font-size: 0.9rem !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Form Inputs, Selects, and Textareas: Full width, min 16px to prevent iOS Safari auto-zoom */
+  #trip-create-modal input,
+  #trip-create-modal select,
+  #trip-create-modal textarea,
+  .trip-create-dialog input,
+  .trip-create-dialog select,
+  .trip-create-dialog textarea,
+  .trip-modal input,
+  .trip-modal select,
+  .trip-modal textarea {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
+    min-height: 44px !important;
+    padding: 0.65rem 0.85rem !important;
+    line-height: normal !important;
+  }
+
+  /* Native Mobile Date Inputs: Keep native calendar pickers intact */
+  #trip-create-modal input[type="date"],
+  .trip-create-dialog input[type="date"],
+  .trip-modal input[type="date"] {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    font-size: 16px !important;
+    min-height: 44px !important;
+    -webkit-text-size-adjust: 100%;
+    cursor: pointer;
+  }
+
+  /* Native Mobile Numeric Inputs: Keep native numeric keyboard and visible spinner arrows */
+  #trip-create-modal input[type="number"],
+  .trip-create-dialog input[type="number"],
+  .trip-modal input[type="number"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    font-size: 16px !important;
+    min-height: 44px !important;
+    -webkit-text-size-adjust: 100%;
+    -moz-appearance: number-input !important;
+    appearance: auto !important;
+  }
+
+  #trip-create-modal input[type="number"]::-webkit-inner-spin-button,
+  #trip-create-modal input[type="number"]::-webkit-outer-spin-button,
+  .trip-create-dialog input[type="number"]::-webkit-inner-spin-button,
+  .trip-create-dialog input[type="number"]::-webkit-outer-spin-button,
+  .trip-modal input[type="number"]::-webkit-inner-spin-button,
+  .trip-modal input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: inner-spin-button !important;
+    opacity: 1 !important;
+    display: inline-block !important;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  /* Modal Action Buttons: Stack vertically in single column with 14px gap */
+  #trip-create-modal .modal-form-actions,
+  .trip-create-dialog .modal-form-actions,
+  .trip-modal-actions,
+  #page-planner-form .modal-form-actions {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important; /* 12-16px vertical gap */
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    margin-top: 1.25rem !important;
+    padding: 0 !important;
+    justify-content: stretch !important;
+  }
+
+  /* Action Buttons: Full width, zero flex shrink, no absolute positioning or overlap */
+  #trip-create-modal .modal-form-actions button,
+  #trip-create-modal .modal-form-actions .btn,
+  .trip-create-dialog .modal-form-actions button,
+  .trip-create-dialog .modal-form-actions .btn,
+  .trip-modal-actions button,
+  .trip-modal-actions .btn,
+  #page-planner-form .modal-form-actions button,
+  #page-planner-form .modal-form-actions .btn {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+    padding: 0.85rem 1rem !important;
+    font-size: 1rem !important;
+    text-align: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: static !important;
+    float: none !important;
+  }
+
+  /* Prevent floating AI Assistant button from overlapping modal action buttons */
+  body.modal-open #ai-chat-container,
+  body.modal-open .ai-chat-container,
+  #trip-create-modal.active ~ #ai-chat-container,
+  #trip-create-modal.active ~ .ai-chat-container {
+    display: none !important;
+  }
+
+  .modal-hero {
+    height: 220px;
+  }
+
+  .modal-hero-title {
+    font-size: 1.65rem;
+    word-break: break-word;
+  }
+
+  .modal-scroll-content {
+    padding: 1.35rem 1.15rem;
+  }
+
+  .attractions-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .things-todo-grid {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .form-row-2 {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* Weather Forecast Cards Row: Swipeable on Tablets/Mobile */
+  .forecast-cards-row {
+    display: flex;
+    overflow-x: auto;
+    gap: 0.6rem;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .forecast-cards-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .forecast-card {
+    min-width: 96px;
+    flex-shrink: 0;
+  }
+
+  /* Footer */
+  .footer {
+    padding-bottom: 5.5rem;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .footer-bottom {
+    flex-direction: column;
+    padding-top: 1.75rem;
+    padding-bottom: 0.5rem;
+    gap: 0.75rem;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .newsletter-form {
+    flex-direction: column;
+  }
+
+  .newsletter-form button {
+    padding: 0.85rem 1.5rem !important;
+    width: 100%;
+  }
+
+  .newsletter-card {
+    padding: 2.5rem 1.5rem;
+  }
+}
+
+/* ==========================================================================
+   3. PHABLETS & SMALL TABLETS (<= 640px)
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* Hide desktop currency pill from header to prevent top bar crowding */
+  .navbar-right-actions .nav-currency-selector-wrapper {
+    display: none !important;
+  }
+
+  .filter-selects-group {
+    grid-template-columns: 1fr;
+  }
+
+  .destinations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .articles-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planner-page-form-wrapper {
+    padding: 1.5rem 1rem !important;
+  }
+
+  .budget-health-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
+  .budget-health-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Auth & Plan Trip Modals */
+  .auth-modal-overlay,
+  #trip-create-modal,
+  #planner-activity-modal,
+  #planner-export-modal {
+    padding: 0.75rem 0.5rem !important;
+    align-items: flex-start !important;
+  }
+
+  .auth-dialog,
+  #planner-activity-modal .modal-dialog,
+  #planner-export-modal .modal-dialog {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100vh - 1.5rem) !important;
+    max-height: calc(100dvh - 1.5rem) !important;
+    border-radius: var(--radius-lg) !important;
+    margin: 0.5rem auto !important;
+  }
+
+  #trip-create-modal .modal-dialog,
+  .trip-create-dialog,
+  .trip-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    max-height: 90vh !important;
+    max-height: 90dvh !important;
+    border-radius: var(--radius-lg) !important;
+    margin: 0.5rem auto !important;
+  }
+
+  .auth-dialog {
+    padding: 1.25rem 1.15rem 1.5rem !important;
+  }
+
+  #trip-create-modal .modal-form,
+  #planner-activity-modal .modal-form {
+    padding: 1.25rem 1rem 1.5rem !important;
+  }
+
+  .auth-title {
+    font-size: 1.35rem;
+  }
+
+  .auth-tabs-nav {
+    margin-bottom: 1rem;
+  }
+
+  .auth-tab-btn {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.35rem;
+  }
+}
+
+/* ==========================================================================
+   4. STANDARD SMARTPHONES (<= 480px)
+   ========================================================================== */
+@media (max-width: 480px) {
+  /* Container Padding for max screen utility */
+  .container {
+    padding: 0 1rem;
+  }
+
+  /* Hero Section Typography & Touch Target Polish */
+  .hero-title {
+    font-size: clamp(2rem, 8vw, 2.35rem);
+    line-height: 1.16;
+    letter-spacing: -0.025em;
+  }
+
+  .hero-subtitle {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+  }
+
+  .hero-section {
+    min-height: 480px;
+    padding: 3.5rem 1rem 4rem;
+  }
+
+  .hero-badge {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.35;
+    font-size: 0.78rem;
+    padding: 0.4rem 0.85rem;
+    text-align: center;
+    box-sizing: border-box;
+  }
+
+  .hero-search-box {
+    flex-direction: column;
+    padding: 0.65rem;
+    border-radius: var(--radius-lg);
+    gap: 0.5rem;
+  }
+
+  .hero-search-box input {
+    width: 100%;
+    padding: 0.5rem 0.25rem;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
+  .hero-search-box .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .hero-actions-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .hero-actions-group .btn {
+    width: 100%;
+    margin-left: 0 !important;
+    justify-content: center;
+  }
+
+  .hero-trust-bar {
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    text-align: center;
+    font-size: 0.8rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: var(--radius-md);
+    margin-top: 2rem;
+  }
+
+  .hero-quick-tag {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.82rem;
+  }
+
+  /* Destination Cards */
+  .dest-card-actions {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .dest-card-body {
+    padding: 1.15rem;
+  }
+
+  .dest-card-meta {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  /* Trip Planner Details */
+  .planner-header-card {
+    padding: 1.25rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .trip-title-display {
+    font-size: 1.4rem;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .trip-dates-display {
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    gap: 0.25rem;
+  }
+
+  .trip-stats-bar {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    padding-top: 1rem;
+  }
+
+  .stat-pill {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .stat-value {
+    font-size: 1.05rem;
+  }
+
+  .day-schedule-card {
+    padding: 1.25rem 1rem;
+  }
+
+  .day-badge-lg {
+    font-size: 0.95rem;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .day-title-block h3 {
+    font-size: 1.1rem;
+  }
+
+  .timeline-activity-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.95rem 1.05rem;
+  }
+
+  .activity-left {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .activity-center {
+    width: 100%;
+  }
+
+  .act-name {
+    font-size: 1rem;
+  }
+
+  .activity-right {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--border-color);
+  }
+
+  .day-schedule-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .day-schedule-header-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .day-schedule-header-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Modal Details */
+  .modal-hero {
+    height: 190px;
+  }
+
+  .modal-hero-content {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+  }
+
+  .modal-hero-badges {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .modal-hero-title {
+    font-size: 1.45rem;
+  }
+
+  .modal-hero-tagline {
+    font-size: 0.88rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .modal-quick-bar {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    padding: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .q-label {
+    font-size: 0.7rem;
+  }
+
+  .q-val {
+    font-size: 0.85rem;
+  }
+
+  .modal-action-bar {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .modal-action-bar .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Weather Modal Details */
+  .weather-modal-header {
+    padding: 1.15rem 1rem;
+  }
+
+  .weather-modal-body {
+    padding: 1rem;
+  }
+
+  .current-weather-metrics {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .w-metric-card {
+    padding: 0.55rem 0.65rem;
+    gap: 0.45rem;
+  }
+
+  .metric-lbl {
+    font-size: 0.65rem;
+  }
+
+  .metric-val {
+    font-size: 0.8rem;
+  }
+
+  /* Toast Notifications */
+  .toast-container {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .toast {
+    min-width: 0;
+    width: 100%;
+    font-size: 0.85rem;
+    padding: 0.75rem 1rem;
+  }
+
+  /* AI Chatbot on Mobile */
+  .ai-chat-container {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .ai-chat-trigger {
+    padding: 0.65rem 1rem 0.65rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  .ai-chat-window {
+    width: calc(100vw - 20px);
+    height: calc(100vh - 75px);
+    height: calc(100dvh - 75px);
+    max-height: calc(100dvh - 35px);
+    border-radius: var(--radius-lg);
+  }
+
+  .ai-chat-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .chat-bubble-wrapper {
+    max-width: 92%;
+  }
+
+  .ai-chat-input-row {
+    padding: 0.5rem 0.65rem;
+    gap: 0.35rem;
+  }
+
+  .ai-btn-lang {
+    padding: 0.3rem 0.45rem;
+    font-size: 0.7rem;
+  }
+
+  .ai-btn-mic,
+  .ai-btn-send {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* About View & Footer on Standard Mobile */
+  .about-hero-block {
+    padding: 2.25rem 0 1.5rem;
+  }
+
+  .about-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .about-stat-box {
+    padding: 1.25rem 0.85rem;
+  }
+
+  .about-stat-num {
+    font-size: 1.85rem;
+  }
+
+  .about-story-card {
+    padding: 1.5rem 1.15rem;
+  }
+
+  .developer-profile-card {
+    padding: 1.5rem 1.15rem;
+    margin-bottom: 2.25rem;
+  }
+
+  .developer-photo-frame {
+    max-width: 190px;
+  }
+
+  .developer-name {
+    font-size: 1.5rem;
+  }
+
+  .developer-quote {
+    padding: 0.95rem 1.05rem;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .about-story-actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .about-story-actions .btn {
+    width: 100%;
+    margin-left: 0 !important;
+    justify-content: center;
+  }
+
+  .tip-card {
+    padding: 1.25rem 1rem;
+    gap: 0.75rem;
+  }
+
+  .tip-number {
+    font-size: 1.2rem;
+    padding: 0.45rem 0.6rem;
+  }
+
+  .contact-form-card,
+  .contact-info-card {
+    padding: 1.5rem 1.15rem;
+  }
+
+  .footer-bottom p {
+    font-size: 0.825rem;
+  }
+
+  /* Hero Search Suggestions on Mobile */
+  .hero-search-suggestions {
+    max-height: 380px;
+  }
+
+  .suggestion-item {
+    padding: 0.75rem 0.85rem;
+    gap: 0.75rem;
+  }
+
+  .sugg-thumb {
+    width: 42px;
+    height: 42px;
+  }
+
+  .sugg-action {
+    display: none;
+  }
+
+  .sugg-text strong {
+    font-size: 0.95rem;
+  }
+
+  /* Currency Converter Mobile Adjustments */
+  .modal-overlay-converter {
+    padding: 0.75rem;
+    align-items: flex-end;
+  }
+
+  .converter-modal-dialog {
+    max-height: 94vh;
+    border-radius: 20px 20px 12px 12px;
+  }
+
+  .converter-modal-header {
+    padding: 1.25rem 1.25rem 1rem;
+  }
+
+  .converter-modal-body {
+    padding: 1.25rem;
+  }
+
+  .converter-currencies-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .converter-swap-col {
+    justify-content: center;
+    margin: -0.25rem 0;
+  }
+
+  .btn-swap-currency {
+    transform: rotate(90deg);
+  }
+
+  .btn-swap-currency:hover {
+    transform: rotate(270deg) scale(1.05);
+  }
+
+  .result-primary-val .result-number {
+    font-size: 1.7rem;
+  }
+}
+
+/* ==========================================================================
+   5. ULTRA-COMPACT PHONES (<= 360px & 320px)
+   ========================================================================== */
+@media (max-width: 360px) {
+  .container {
+    padding: 0 0.75rem;
+  }
+
+  .navbar-brand {
+    font-size: 1.25rem;
+    gap: 0.4rem;
+  }
+
+  .brand-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .hero-title {
+    font-size: 1.75rem;
+  }
+
+  .stat-pill {
+    padding: 0.55rem 0.65rem;
+  }
+
+  .trip-stats-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-quick-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .days-list-nav {
+    gap: 0.4rem;
+  }
+
+  .day-nav-item {
+    min-width: 100px;
+    padding: 0.5rem 0.65rem;
+  }
+
+  .btn {
+    font-size: 0.85rem;
+  }
+}
+
+/* ==========================================================================
+   6. SHORT / LANDSCAPE VIEWPORTS (HEIGHT <= 600px)
+   ========================================================================== */
+@media (max-height: 600px) {
+  .modal-dialog {
+    max-height: calc(100vh - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    margin: 0.5rem auto !important;
+  }
+
+  .modal-hero {
+    height: 150px;
+  }
+
+  .ai-chat-window {
+    height: calc(100vh - 40px) !important;
+    height: calc(100dvh - 40px) !important;
+  }
+}

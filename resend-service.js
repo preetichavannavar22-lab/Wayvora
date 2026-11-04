@@ -130,57 +130,51 @@ async function sendEmail(options) {
 
     if (response.error) {
       const err = response.error;
-      const isSandbox = err.statusCode === 403 || 
-        (err.message && (err.message.includes('only send testing emails') || err.message.includes('resend.com/domains')));
+      const errMsg = err.message || 'Resend API error';
+      const isSandbox = (
+        err.statusCode === 403 ||
+        err.statusCode === 422 ||
+        (errMsg && (
+          errMsg.includes('only send testing emails') ||
+          errMsg.includes('resend.com/domains') ||
+          errMsg.includes('testing email address') ||
+          errMsg.includes('verify a domain')
+        ))
+      );
 
       console.error('[ResendService] API Error:', {
         statusCode: err.statusCode,
         name: err.name,
-        message: err.message,
-        isSandboxRestriction: isSandbox
+        message: errMsg,
+        isSandboxRestriction: isSandbox,
+        recipient: to
       });
 
-      // If sandbox restriction occurs and a test email is configured, deliver a test copy to the verified account
-      if (isSandbox && config.testEmail && to !== config.testEmail && !_isRetry) {
-        console.log(`[ResendService] Sandbox restriction: Forwarding test email to registered account: ${config.testEmail}`);
-        const testNotice = `<div style="background:#fef3c7;border:1px solid #f59e0b;padding:12px;border-radius:6px;margin-bottom:16px;font-size:13px;color:#92400e;">⚠️ <strong>Resend Sandbox Test Mode:</strong> This email was originally addressed to <strong>${escapeHtml(to)}</strong>. Because <em>onboarding@resend.dev</em> is in sandbox test mode, it was forwarded to your registered test account (<strong>${escapeHtml(config.testEmail)}</strong>). To deliver directly to any traveler address, verify a custom domain at resend.com/domains.</div>`;
-        const retryResult = await sendEmail({
-          to: config.testEmail,
-          subject: `[Sandbox Test for ${to}] ${subject}`,
-          html: testNotice + html,
-          text: `[Sandbox Test for ${to}]\n\n` + (text || ''),
-          replyTo,
-          from,
-          _isRetry: true
-        });
-        return {
-          ...retryResult,
-          isSandboxRestriction: true,
-          forwardedToTestEmail: config.testEmail,
-          originalRecipient: to,
-          sandboxNotice: err.message
-        };
-      }
+      const humanError = isSandbox
+        ? `Resend sandbox mode restriction: emails can only be delivered to your registered Resend account (${config.testEmail || config.adminEmail}). To deliver directly to customer addresses (${Array.isArray(to) ? to.join(', ') : to}), verify your custom domain at https://resend.com/domains.`
+        : errMsg;
 
       return {
         success: false,
         verified: false,
-        error: err.message || 'Resend API returned an error',
+        error: humanError,
         statusCode: err.statusCode,
         name: err.name,
         isSandboxRestriction: isSandbox,
+        recipient: to,
         timestamp: new Date().toISOString()
       };
     }
 
     if (response.data && response.data.id) {
-      console.log(`[ResendService] Email delivered successfully. ID: ${response.data.id} -> Recipient: ${to}`);
+      console.log(`[ResendService] Email successfully accepted by Resend. ID: ${response.data.id} -> Recipient: ${Array.isArray(to) ? to.join(', ') : to}`);
       return {
         success: true,
         verified: true,
         id: response.data.id,
         to: to,
         from: sender,
+        status: 'sent',
         timestamp: new Date().toISOString()
       };
     }
@@ -198,6 +192,44 @@ async function sendEmail(options) {
       error: networkErr.message || 'Network error communicating with Resend API.'
     };
   }
+}
+
+/**
+ * Checks email delivery status using Resend API if API key permits read access.
+ * If the API key is restricted to send-only, returns the last known status safely.
+ */
+async function checkEmailStatus(emailId) {
+  if (!emailId) return null;
+  const config = getConfig();
+  if (!config.isConfigured) return null;
+
+  try {
+    const resend = new Resend(config.apiKey);
+    const result = await resend.emails.get(emailId);
+    if (result && result.data) {
+      return {
+        id: result.data.id,
+        status: result.data.last_event || 'sent', // 'sent', 'delivered', 'bounced', 'complained', 'delivery_delayed'
+        to: result.data.to,
+        from: result.data.from,
+        createdAt: result.data.created_at
+      };
+    }
+    if (result && result.error && result.error.name === 'restricted_api_key') {
+      // Send-only key: Resend API disallows status reading; email was accepted on send
+      return {
+        id: emailId,
+        status: 'sent',
+        isSendOnlyKey: true
+      };
+    }
+  } catch (e) {
+    // Graceful fallback
+  }
+  return {
+    id: emailId,
+    status: 'sent'
+  };
 }
 
 /**
@@ -445,6 +477,15 @@ To reply to this traveler directly, simply hit Reply in your email client (Reply
  * Dispatched to the traveler when the administrator answers from the Admin Dashboard.
  */
 async function sendAdminReplyToCustomer({ ticketId, travelerName, travelerEmail, adminReply, originalMessage, category, status = 'in_progress' }) {
+  if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+    console.warn('[ResendService] KILL-SWITCH ACTIVE: sendAdminReplyToCustomer suppressed.');
+    return {
+      success: false,
+      error: 'Outgoing support replies are disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+      killSwitchActive: true
+    };
+  }
+
   const config = getConfig();
   const safeName = escapeHtml(travelerName || 'Traveler');
   const safeCategory = escapeHtml(category || 'General Support');
@@ -554,6 +595,7 @@ module.exports = {
   getConfig,
   escapeHtml,
   sendEmail,
+  checkEmailStatus,
   sendCustomerAcknowledgement,
   sendAdminNotification,
   sendAdminReplyToCustomer

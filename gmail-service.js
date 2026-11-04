@@ -430,6 +430,15 @@ function buildMimeMessage({ to, from, subject, html, text, replyTo, inReplyTo, r
  * @returns {Promise<{success: boolean, verified: boolean, id?: string, error?: string}>}
  */
 async function sendEmailWithGmail({ to, subject, html, text, replyTo, inReplyTo, references }) {
+  if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+    console.warn('[GmailService] KILL-SWITCH ACTIVE: Outgoing email dispatch suppressed.');
+    return {
+      success: false,
+      error: 'Outgoing emails are disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+      killSwitchActive: true
+    };
+  }
+
   const config = getConfig();
   const accessToken = await getValidAccessToken();
 
@@ -530,6 +539,15 @@ function escapeHtml(str) {
  * to the actual traveler's registered email address.
  */
 async function sendAdminReplyWithGmail({ ticketId, travelerName, travelerEmail, adminReply, originalMessage, category, status = 'in_progress' }) {
+  if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+    console.warn('[GmailService] KILL-SWITCH ACTIVE: sendAdminReplyWithGmail suppressed.');
+    return {
+      success: false,
+      error: 'Outgoing support replies are disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+      killSwitchActive: true
+    };
+  }
+
   const config = getConfig();
   const safeName = escapeHtml(travelerName || 'Traveler');
   const safeCategory = escapeHtml(category || 'General Support');
