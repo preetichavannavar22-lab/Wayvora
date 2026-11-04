@@ -376,12 +376,12 @@ const AdminDashboard = {
     // Show email dispatch channel indicator (Gmail SMTP vs Gmail API vs Resend)
     const channelInd = document.getElementById("manage-ticket-channel-indicator");
     if (channelInd) {
-      if (this.gmailStatus && (this.gmailStatus.method === 'smtp' || this.gmailStatus.provider === 'gmail_smtp')) {
+      if (this.gmailStatus && this.gmailStatus.isConnected) {
+        channelInd.innerHTML = `📬 Channel: <strong>Gmail API (OAuth 2.0)</strong> (${this.escapeHtml(this.gmailStatus.connectedEmail || 'wayvora.admin@gmail.com')})`;
+        channelInd.style.color = "#38bdf8";
+      } else if (this.gmailStatus && (this.gmailStatus.method === 'smtp' || this.gmailStatus.provider === 'gmail_smtp')) {
         channelInd.innerHTML = `📬 Channel: <strong>Gmail SMTP</strong> (${this.escapeHtml(this.gmailStatus.connectedEmail || 'wayvora.admin@gmail.com')})`;
         channelInd.style.color = "#4ade80";
-      } else if (this.gmailStatus && this.gmailStatus.isConnected) {
-        channelInd.innerHTML = `📬 Channel: <strong>Gmail API</strong> (${this.escapeHtml(this.gmailStatus.connectedEmail || 'wayvora.admin@gmail.com')})`;
-        channelInd.style.color = "#38bdf8";
       } else {
         channelInd.innerHTML = `📨 Channel: <strong>Resend API</strong>`;
         channelInd.style.color = "#94a3b8";

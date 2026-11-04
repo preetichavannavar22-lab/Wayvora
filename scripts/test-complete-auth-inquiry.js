@@ -44,6 +44,7 @@ const {
   getUserAuthRecordByEmail
 } = require('../api/firebase-admin.js');
 
+const GmailService = require('../api/gmail-service.js');
 const GmailSmtpService = require('../api/gmail-smtp-service.js');
 const { handleSupportRequest } = require('../api/support.js');
 const AuthService = require('../js/auth.js');
@@ -242,12 +243,19 @@ async function runCompleteTestSuite() {
   });
 
   // ==========================================================================
-  // REQUIREMENT 4: GMAIL SMTP - ADMINISTRATOR SUPPORT REPLIES
+  // REQUIREMENT 4: GMAIL API (OAUTH 2.0) - ADMINISTRATOR SUPPORT REPLIES
   // ==========================================================================
-  console.log('\n--- Requirement 4: Gmail SMTP & Registered User Replies ---');
+  console.log('\n--- Requirement 4: Gmail API (Google OAuth 2.0) & Registered User Replies ---');
 
-  await runTest('Gmail SMTP Service defaults sender to wayvora.admin@gmail.com', () => {
-    assert.strictEqual(GmailSmtpService.getAdminEmail(), 'wayvora.admin@gmail.com');
+  await runTest('Gmail API Service defaults sender to wayvora.admin@gmail.com', () => {
+    assert.strictEqual(GmailService.getConfig().adminGmail, 'wayvora.admin@gmail.com');
+  });
+
+  await runTest('Gmail API OAuth2 configuration is valid and connected', async () => {
+    const status = await GmailService.getConnectionStatus();
+    assert.strictEqual(status.isConfigured, true);
+    assert.strictEqual(status.isConnected, true);
+    assert.strictEqual(status.connectedEmail, 'wayvora.admin@gmail.com');
   });
 
   await runTest('Admin reply endpoint /api/support/reply blocks unauthenticated callers (HTTP 401)', async () => {
@@ -333,7 +341,7 @@ async function runCompleteTestSuite() {
       body: {
         ticketId: regTicket.id,
         adminReply: 'Hello Preeti, we would love to help you plan your Jaipur trip!',
-        provider: 'gmail_smtp'
+        provider: 'gmail'
       }
     });
 
@@ -467,10 +475,10 @@ async function runCompleteTestSuite() {
     assert.ok(auth, 'Firebase Auth Admin is initialized');
   });
 
-  await runTest('.env.example documents GMAIL_USER and GMAIL_APP_PASSWORD', () => {
+  await runTest('.env.example documents GOOGLE_CLIENT_ID and GOOGLE_REFRESH_TOKEN', () => {
     const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
-    assert.ok(envExample.includes('GMAIL_USER='));
-    assert.ok(envExample.includes('GMAIL_APP_PASSWORD='));
+    assert.ok(envExample.includes('GOOGLE_CLIENT_ID='));
+    assert.ok(envExample.includes('GOOGLE_REFRESH_TOKEN='));
   });
 
   await runTest('public/api/ is completely synchronized with api/', () => {

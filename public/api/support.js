@@ -426,17 +426,33 @@ async function handleAdminReply(req, res, body) {
   const category = (ticket && ticket.category) || body.category || 'General Support';
   const originalMessage = (ticket && ticket.message) || body.originalMessage || '';
 
-  // 5. Dispatch official reply email to traveler via Gmail SMTP (Nodemailer)
+  // 5. Dispatch official reply email to traveler via Gmail API (Google OAuth 2.0)
   // Sender email: wayvora.admin@gmail.com
   const now = new Date().toISOString();
   let emailResult = { success: false, error: 'Not executed' };
   let providerUsed = 'none';
 
+  const gmailStatus = await getGmailStatus();
   const smtpConfig = getSmtpConfig();
 
   try {
-    // 5a. Primary & Required: Gmail SMTP via Nodemailer (Sender: wayvora.admin@gmail.com)
-    if (requestedProvider === 'gmail_smtp' || (smtpConfig.isConfigured && requestedProvider !== 'resend')) {
+    // 5a. Primary & Required: Gmail API via Google OAuth 2.0 (Sender: wayvora.admin@gmail.com)
+    if (requestedProvider === 'gmail' || (gmailStatus.isConnected && requestedProvider !== 'resend' && requestedProvider !== 'gmail_smtp')) {
+      console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail API (from ${gmailStatus.connectedEmail || 'wayvora.admin@gmail.com'})...`);
+      emailResult = await sendAdminReplyWithGmail({
+        ticketId,
+        travelerName,
+        travelerEmail,
+        adminReply: adminReply.trim(),
+        originalMessage,
+        category,
+        status
+      });
+      if (emailResult.success) {
+        providerUsed = 'gmail';
+      }
+    } else if (requestedProvider === 'gmail_smtp' || (smtpConfig.isConfigured && requestedProvider !== 'resend' && !gmailStatus.isConnected)) {
+      // Alternate fallback to Gmail SMTP if explicitly requested or if OAuth is unconfigured
       console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail SMTP (from ${smtpConfig.user})...`);
       emailResult = await sendAdminReplyWithSmtp({
         ticketId,
@@ -450,8 +466,8 @@ async function handleAdminReply(req, res, body) {
       if (emailResult.success) {
         providerUsed = 'gmail_smtp';
       }
-    } else if (requestedProvider === 'resend' || (!smtpConfig.isConfigured && requestedProvider !== 'gmail_smtp')) {
-      // Fallback to Resend API when SMTP is unconfigured or explicitly requested by test suite
+    } else if (requestedProvider === 'resend' || (!gmailStatus.isConnected && !smtpConfig.isConfigured)) {
+      // Fallback to Resend API when Gmail is unconfigured or explicitly requested
       console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Resend API...`);
       emailResult = await sendAdminReplyToCustomer({
         ticketId,
@@ -466,10 +482,9 @@ async function handleAdminReply(req, res, body) {
         providerUsed = 'resend';
       }
     } else {
-      // Gmail SMTP was explicitly requested but not configured
       emailResult = {
         success: false,
-        error: 'Gmail SMTP is not configured. Please configure GMAIL_USER and GMAIL_APP_PASSWORD in environment variables.'
+        error: 'Gmail API is not connected. Please authorize Gmail in the Admin Dashboard or configure GOOGLE_REFRESH_TOKEN.'
       };
     }
   } catch (eErr) {

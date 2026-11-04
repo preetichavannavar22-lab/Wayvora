@@ -102,7 +102,18 @@ async function handleAuthRequest(req, res) {
     // 3. GET /api/auth/google/status - Connection Status (Admin Dashboard)
     // -------------------------------------------------------------------------
     if ((cleanPath === '/api/auth/google/status' || cleanPath === '/api/auth/status' || cleanPath === '/api/auth/smtp/status') && req.method === 'GET') {
-      const { getConfig: getSmtpConfig, verifySmtpConnection } = require('./gmail-smtp-service.js');
+      const status = await getConnectionStatus();
+      if (status.isConnected) {
+        return sendJsonResponse(res, 200, {
+          success: true,
+          ...status,
+          method: 'oauth2',
+          provider: 'gmail',
+          scope: status.scope || 'https://www.googleapis.com/auth/gmail.send',
+          channel: `Gmail API (Google OAuth 2.0) • ${status.connectedEmail || 'wayvora.admin@gmail.com'}`
+        });
+      }
+      const { getConfig: getSmtpConfig } = require('./gmail-smtp-service.js');
       const smtpConfig = getSmtpConfig();
       if (smtpConfig.isConfigured) {
         return sendJsonResponse(res, 200, {
@@ -116,7 +127,6 @@ async function handleAuthRequest(req, res) {
           channel: 'Gmail SMTP (Nodemailer) • wayvora.admin@gmail.com'
         });
       }
-      const status = await getConnectionStatus();
       return sendJsonResponse(res, 200, { success: true, ...status });
     }
 
@@ -139,7 +149,7 @@ async function handleAuthRequest(req, res) {
     }
 
     // -------------------------------------------------------------------------
-    // 5. POST /api/auth/google/test - Send Test Email via Gmail SMTP or API
+    // 5. POST /api/auth/google/test - Send Test Email via Gmail API (OAuth 2.0)
     // -------------------------------------------------------------------------
     if ((cleanPath === '/api/auth/google/test' || cleanPath === '/api/auth/test' || cleanPath === '/api/auth/smtp/test') && req.method === 'POST') {
       // Admin verification
@@ -155,7 +165,55 @@ async function handleAuthRequest(req, res) {
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
       const targetEmail = body.to || 'wayvora.admin@gmail.com';
 
-      // Check Gmail SMTP first
+      const config = getConfig();
+      const status = await getConnectionStatus();
+
+      // Primary: Gmail API via Google OAuth 2.0
+      if (status.isConnected) {
+        const testResult = await sendEmailWithGmail({
+          to: targetEmail,
+          subject: 'WAYVORA - Gmail API OAuth2 Verification Test',
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 550px; margin: auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 10px;">
+              <div style="background: #0f172a; padding: 18px 20px; border-radius: 8px 8px 0 0; text-align: center;">
+                <h2 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 1px;">WAYVORA GMAIL API TEST</h2>
+              </div>
+              <div style="padding: 20px 0;">
+                <p style="font-size: 15px; color: #1e293b;">Hello Administrator,</p>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; margin: 15px 0;">
+                  <strong style="color: #166534;">✓ Gmail Connection Verified!</strong>
+                  <p style="margin: 6px 0 0 0; color: #14532d; font-size: 13px;">This email confirms that WAYVORA has securely established an authenticated connection with Gmail via Google OAuth 2.0 without requiring any App Password.</p>
+                </div>
+                <p style="font-size: 13px; color: #64748b;">Support ticket replies sent from the WAYVORA Admin Dashboard will now be delivered directly from <strong>${config.adminGmail}</strong>.</p>
+              </div>
+              <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 12px; color: #94a3b8; text-align: center;">
+                Dispatched at ${new Date().toUTCString()} via Gmail REST API
+              </div>
+            </div>
+          `,
+          text: `WAYVORA Gmail API Test\n\nGmail Connection Verified!\nDispatched from ${config.adminGmail} via Google OAuth 2.0.`
+        });
+
+        if (!testResult.success) {
+          return sendJsonResponse(res, 400, {
+            success: false,
+            error: testResult.error,
+            provider: 'gmail'
+          });
+        }
+
+        return sendJsonResponse(res, 200, {
+          success: true,
+          verified: true,
+          messageId: testResult.id,
+          recipient: targetEmail,
+          provider: 'gmail',
+          timestamp: testResult.timestamp,
+          message: `Verification test email sent to ${targetEmail} via Gmail API (Google OAuth 2.0)!`
+        });
+      }
+
+      // Alternate fallback to SMTP if configured
       const { getConfig: getSmtpConfig, sendTestEmailWithSmtp } = require('./gmail-smtp-service.js');
       const smtpConfig = getSmtpConfig();
 
@@ -179,46 +237,9 @@ async function handleAuthRequest(req, res) {
         });
       }
 
-      // Fallback to Gmail OAuth2 API
-      const config = getConfig();
-      const testResult = await sendEmailWithGmail({
-        to: targetEmail,
-        subject: 'WAYVORA - Gmail API OAuth2 Verification Test',
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 550px; margin: auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 10px;">
-            <div style="background: #0f172a; padding: 18px 20px; border-radius: 8px 8px 0 0; text-align: center;">
-              <h2 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 1px;">WAYVORA GMAIL API TEST</h2>
-            </div>
-            <div style="padding: 20px 0;">
-              <p style="font-size: 15px; color: #1e293b;">Hello Administrator,</p>
-              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                <strong style="color: #166534;">✓ Gmail Connection Verified!</strong>
-                <p style="margin: 6px 0 0 0; color: #14532d; font-size: 13px;">This email confirms that WAYVORA has securely established an authenticated connection with Gmail.</p>
-              </div>
-              <p style="font-size: 13px; color: #64748b;">Support ticket replies sent from the WAYVORA Admin Dashboard will now be delivered directly from <strong>${config.adminGmail}</strong>.</p>
-            </div>
-            <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 12px; color: #94a3b8; text-align: center;">
-              Dispatched at ${new Date().toUTCString()}
-            </div>
-          </div>
-        `,
-        text: `WAYVORA Gmail Test\n\nGmail Connection Verified!\nDispatched from ${config.adminGmail}.`
-      });
-
-      if (!testResult.success) {
-        return sendJsonResponse(res, 400, {
-          success: false,
-          error: testResult.error
-        });
-      }
-
-      return sendJsonResponse(res, 200, {
-        success: true,
-        verified: true,
-        messageId: testResult.id,
-        recipient: targetEmail,
-        timestamp: testResult.timestamp,
-        message: `Verification test email sent to ${targetEmail} via Gmail API!`
+      return sendJsonResponse(res, 400, {
+        success: false,
+        error: 'Gmail API is not connected. Please connect your Gmail account in the Admin Dashboard or configure GOOGLE_REFRESH_TOKEN.'
       });
     }
 
