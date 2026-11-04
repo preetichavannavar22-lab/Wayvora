@@ -46,12 +46,13 @@ async function handleAuthRequest(req, res) {
   }
 
   const cleanPath = (pathname || '').replace(/\/+$/, '').toLowerCase();
+  const action = (searchParams.get('action') || (req.body && req.body.action) || '').toLowerCase();
 
   try {
     // -------------------------------------------------------------------------
     // 1. GET /api/auth/google/url - Generate OAuth Authorization URL
     // -------------------------------------------------------------------------
-    if ((cleanPath === '/api/auth/google/url' || cleanPath === '/api/auth/url') && req.method === 'GET') {
+    if ((cleanPath === '/api/auth/google/url' || cleanPath === '/api/auth/url' || (cleanPath === '/api/auth' && action === 'url')) && req.method === 'GET') {
       const stateParam = searchParams.get('state') || '';
       try {
         const result = getAuthUrl(stateParam);
@@ -73,7 +74,7 @@ async function handleAuthRequest(req, res) {
       cleanPath === '/api/auth/callback' ||
       cleanPath === '/callback' ||
       cleanPath.endsWith('/google/callback') ||
-      ((cleanPath === '' || cleanPath === '/' || cleanPath === '/index.html') && (searchParams.has('code') || searchParams.has('error')))
+      ((cleanPath === '' || cleanPath === '/' || cleanPath === '/index.html' || cleanPath === '/api/auth') && (searchParams.has('code') || searchParams.has('error')))
     );
 
     if (isCallback && req.method === 'GET') {
@@ -101,7 +102,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     // 3. GET /api/auth/google/status - Connection Status (Admin Dashboard)
     // -------------------------------------------------------------------------
-    if ((cleanPath === '/api/auth/google/status' || cleanPath === '/api/auth/status' || cleanPath === '/api/auth/smtp/status') && req.method === 'GET') {
+    if ((cleanPath === '/api/auth/google/status' || cleanPath === '/api/auth/status' || cleanPath === '/api/auth/smtp/status' || cleanPath === '/api/auth' || cleanPath.endsWith('/status')) && req.method === 'GET') {
       const status = await getConnectionStatus();
       if (status.isConnected) {
         return sendJsonResponse(res, 200, {
@@ -133,7 +134,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     // 4. POST /api/auth/google/disconnect - Disconnect Gmail Integration
     // -------------------------------------------------------------------------
-    if ((cleanPath === '/api/auth/google/disconnect' || cleanPath === '/api/auth/disconnect') && req.method === 'POST') {
+    if ((cleanPath === '/api/auth/google/disconnect' || cleanPath === '/api/auth/disconnect' || (cleanPath === '/api/auth' && action === 'disconnect')) && req.method === 'POST') {
       // Admin verification
       const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -151,7 +152,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     // 5. POST /api/auth/google/test - Send Test Email via Gmail API (OAuth 2.0)
     // -------------------------------------------------------------------------
-    if ((cleanPath === '/api/auth/google/test' || cleanPath === '/api/auth/test' || cleanPath === '/api/auth/smtp/test') && req.method === 'POST') {
+    if ((cleanPath === '/api/auth/google/test' || cleanPath === '/api/auth/test' || cleanPath === '/api/auth/smtp/test' || (cleanPath === '/api/auth' && action === 'test')) && req.method === 'POST') {
       // Admin verification
       const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
       if (authHeader && authHeader.startsWith('Bearer ')) {
