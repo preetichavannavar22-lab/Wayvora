@@ -244,7 +244,10 @@ async function handleAuthRequest(req, res) {
       });
     }
 
-    return sendJsonResponse(res, 404, { error: 'Not found: Invalid auth endpoint' });
+    return sendJsonResponse(res, 404, {
+      error: 'Not found: Invalid auth endpoint',
+      debug: { url: req.url, pathname, cleanPath, method: req.method }
+    });
 
   } catch (err) {
     console.error('[GoogleAuth] Internal Handler Error:', err);
