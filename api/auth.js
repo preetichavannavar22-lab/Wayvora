@@ -245,8 +245,7 @@ async function handleAuthRequest(req, res) {
     }
 
     return sendJsonResponse(res, 404, {
-      error: 'Not found: Invalid auth endpoint',
-      debug: { url: req.url, pathname, cleanPath, method: req.method }
+      error: 'Not found: Invalid auth endpoint'
     });
 
   } catch (err) {
