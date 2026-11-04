@@ -29,7 +29,7 @@
       "destination": "/api/auth.js"
     },
     {
-      "source": "/((?!api/|css/|js/|images/|public/|favicon\\.ico).*)",
+      "source": "/((?!api/|css/|js/|images/|index\\.html|favicon\\.ico|.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }
   ],
