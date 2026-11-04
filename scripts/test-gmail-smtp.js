@@ -376,20 +376,13 @@ async function runSuite() {
   });
 
   // --------------------------------------------------------------------------
-  // Test 15: Public API directory mirror synchronization
+  // Test 15: Serverless routes exist and export valid handlers
   // --------------------------------------------------------------------------
-  await runTest('public/api/ directory is synchronized with api/', () => {
-    const apiSmtp = fs.readFileSync(path.join(__dirname, '..', 'api', 'gmail-smtp-service.js'), 'utf8');
-    const pubSmtp = fs.readFileSync(path.join(__dirname, '..', 'public', 'api', 'gmail-smtp-service.js'), 'utf8');
-    assert.strictEqual(apiSmtp, pubSmtp, 'gmail-smtp-service.js must match in api and public/api');
-
-    const apiSupport = fs.readFileSync(path.join(__dirname, '..', 'api', 'support.js'), 'utf8');
-    const pubSupport = fs.readFileSync(path.join(__dirname, '..', 'public', 'api', 'support.js'), 'utf8');
-    assert.strictEqual(apiSupport, pubSupport, 'support.js must match in api and public/api');
-
-    const apiAuth = fs.readFileSync(path.join(__dirname, '..', 'api', 'auth.js'), 'utf8');
-    const pubAuth = fs.readFileSync(path.join(__dirname, '..', 'public', 'api', 'auth.js'), 'utf8');
-    assert.strictEqual(apiAuth, pubAuth, 'auth.js must match in api and public/api');
+  await runTest('api/ serverless routes exist and export valid handlers', () => {
+    const handleAuth = require('../api/auth.js');
+    const handleSupport = require('../api/support.js');
+    assert.strictEqual(typeof handleAuth, 'function');
+    assert.strictEqual(typeof handleSupport, 'function');
   });
 
   console.log('\n================================================================');

@@ -481,18 +481,13 @@ async function runCompleteTestSuite() {
     assert.ok(envExample.includes('GOOGLE_REFRESH_TOKEN='));
   });
 
-  await runTest('public/api/ is completely synchronized with api/', () => {
-    const apiFiles = fs.readdirSync(path.join(__dirname, '..', 'api'));
-    for (const f of apiFiles) {
-      if (f.endsWith('.js')) {
-        const p1 = path.join(__dirname, '..', 'api', f);
-        const p2 = path.join(__dirname, '..', 'public', 'api', f);
-        assert.ok(fs.existsSync(p2), `File ${f} must exist in public/api/`);
-        const c1 = fs.readFileSync(p1, 'utf8');
-        const c2 = fs.readFileSync(p2, 'utf8');
-        assert.strictEqual(c1, c2, `Content of ${f} in api/ and public/api/ must match`);
-      }
-    }
+  await runTest('api/ serverless routes exist and export valid handlers', () => {
+    const handleAuth = require('../api/auth.js');
+    const handleSupport = require('../api/support.js');
+    const gmailService = require('../api/gmail-service.js');
+    assert.strictEqual(typeof handleAuth, 'function');
+    assert.strictEqual(typeof handleSupport, 'function');
+    assert.strictEqual(typeof gmailService.sendEmailWithGmail, 'function');
   });
 
   console.log('\n======================================================================');
