@@ -14,19 +14,19 @@
     },
     {
       "source": "/api/support/:path*",
-      "destination": "/api/support.js"
+      "destination": "/api/support"
     },
     {
       "source": "/api/support",
-      "destination": "/api/support.js"
+      "destination": "/api/support"
     },
     {
       "source": "/api/auth/:path*",
-      "destination": "/api/auth.js"
+      "destination": "/api/auth"
     },
     {
       "source": "/api/auth",
-      "destination": "/api/auth.js"
+      "destination": "/api/auth"
     },
     {
       "source": "/((?!api/|css/|js/|images/|public/|favicon\\.ico).*)",
