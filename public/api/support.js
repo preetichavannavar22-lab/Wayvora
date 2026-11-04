@@ -138,57 +138,69 @@ async function handleCreateSupportRequest(req, res, body) {
     return;
   }
 
-  // 2. Fetch authenticated user registered email if userId is available
-  if (userId) {
-    try {
-      const userRecord = await getUserAuthRecord(userId);
-      if (userRecord && userRecord.email) {
-        registeredEmail = userRecord.email.trim().toLowerCase();
-      }
-    } catch (e) {
-      console.warn('[SupportAPI] Could not fetch user from Auth:', e.message);
-    }
-  }
+  // 2. Strict Authentication Requirement: Caller must be a registered, authenticated Firebase user
+  const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
+  let verifiedUid = null;
+  let verifiedEmail = null;
 
-  // 2b. If no userId provided in body, check Authorization Bearer token
-  if (!userId) {
-    const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split('Bearer ')[1].trim();
+    const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
+    if (auth) {
       try {
-        const token = authHeader.split('Bearer ')[1].trim();
-        const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
-        if (auth) {
-          const decoded = await auth.verifyIdToken(token);
-          if (decoded && decoded.uid) {
-            userId = decoded.uid;
-            if (!registeredEmail && decoded.email) {
-              registeredEmail = decoded.email.trim().toLowerCase();
-            }
-          }
+        const decoded = await auth.verifyIdToken(token);
+        if (decoded && decoded.uid) {
+          verifiedUid = decoded.uid;
+          verifiedEmail = (decoded.email || '').trim().toLowerCase();
         }
       } catch (tokenErr) {
-        // Non-fatal
+        console.warn('[SupportAPI] Token verification error:', tokenErr.message);
+        const errRes = {
+          success: false,
+          error: 'Unauthorized: Invalid or expired authentication token. Please sign in to submit an inquiry.'
+        };
+        if (typeof res.status === 'function') return res.status(401).json(errRes);
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(errRes));
+        return;
       }
     }
   }
 
-  // 2c. If still no userId, check if email matches a registered traveler in Firebase Auth
-  if (!userId && email) {
-    try {
-      const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
-      if (auth) {
-        const userRecord = await auth.getUserByEmail(email.toLowerCase());
-        if (userRecord && userRecord.uid) {
-          userId = userRecord.uid;
-          if (!registeredEmail && userRecord.email) {
-            registeredEmail = userRecord.email.trim().toLowerCase();
-          }
-        }
-      }
-    } catch (e) {
-      // Non-fatal if guest
-    }
+  // Reject direct unauthenticated requests
+  if (!verifiedUid) {
+    const errRes = {
+      success: false,
+      error: 'Unauthorized: You must be registered and signed in to WAYVORA to submit an inquiry or support request.'
+    };
+    if (typeof res.status === 'function') return res.status(401).json(errRes);
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(errRes));
+    return;
   }
+
+  // 2b. Verify user exists in Firebase Authentication
+  let userRecord = null;
+  try {
+    userRecord = await getUserAuthRecord(verifiedUid);
+  } catch (uErr) {
+    console.warn('[SupportAPI] User not found in Firebase Auth:', uErr.message);
+  }
+
+  if (!userRecord || !userRecord.email) {
+    const errRes = {
+      success: false,
+      error: 'Forbidden: A registered WAYVORA traveler account was not found for this user.'
+    };
+    if (typeof res.status === 'function') return res.status(403).json(errRes);
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(errRes));
+    return;
+  }
+
+  userId = userRecord.uid;
+  registeredEmail = userRecord.email.trim().toLowerCase();
+  const source = body.source || (category === 'planning' || category === 'feature' ? 'about_inquiry' : 'support_ticket');
 
   // 3. Save inquiry to Cloud Firestore
   let ticketId = existingTicketId;
@@ -198,11 +210,12 @@ async function handleCreateSupportRequest(req, res, body) {
   try {
     const saved = await saveSupportTicket({
       name,
-      email,
-      registeredEmail: registeredEmail || email,
+      email: registeredEmail,
+      registeredEmail,
       category,
       message,
       userId,
+      source,
       ticketId: existingTicketId
     });
     ticketId = saved.id;
@@ -395,23 +408,26 @@ async function handleAdminReply(req, res, body) {
     }
   }
 
-  const travelerEmail = registeredEmail || (ticket && (ticket.registeredEmail || ticket.email)) || body.travelerEmail;
-  const travelerName = (ticket && ticket.name) || body.travelerName || 'Traveler';
-  const category = (ticket && ticket.category) || body.category || 'General Support';
-  const originalMessage = (ticket && ticket.message) || body.originalMessage || '';
-
-  if (!travelerEmail) {
+  // 4c. STRICT REQUIREMENT: Recipient must belong to an existing registered Firebase Authentication account
+  if (!registeredEmail) {
     const errRes = {
       success: false,
-      error: 'Could not resolve registered traveler email address for this ticket.'
+      error: 'Cannot send reply: The recipient does not have a registered WAYVORA account in Firebase Authentication. Replies are strictly restricted to registered users.'
     };
-    if (typeof res.status === 'function') return res.status(404).json(errRes);
-    res.writeHead(404, { 'Content-Type': 'application/json' });
+    if (typeof res.status === 'function') return res.status(400).json(errRes);
+    res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(errRes));
     return;
   }
 
-  // 5. Dispatch official reply email to traveler via Gmail SMTP (Nodemailer), Gmail API, or Resend
+  // Retrieve recipient email strictly from Firebase Authentication
+  const travelerEmail = registeredEmail;
+  const travelerName = (ticket && ticket.name) || body.travelerName || 'Traveler';
+  const category = (ticket && ticket.category) || body.category || 'General Support';
+  const originalMessage = (ticket && ticket.message) || body.originalMessage || '';
+
+  // 5. Dispatch official reply email to traveler via Gmail SMTP (Nodemailer)
+  // Sender email: wayvora.admin@gmail.com
   const now = new Date().toISOString();
   let emailResult = { success: false, error: 'Not executed' };
   let providerUsed = 'none';
@@ -419,9 +435,8 @@ async function handleAdminReply(req, res, body) {
   const smtpConfig = getSmtpConfig();
 
   try {
-    // 5a. Primary: Gmail SMTP via Nodemailer (Sender: wayvora.admin@gmail.com)
-    // Used when GMAIL_APP_PASSWORD is configured, or explicitly requested
-    if (requestedProvider === 'gmail_smtp' || (smtpConfig.isConfigured && requestedProvider !== 'resend' && requestedProvider !== 'gmail_oauth')) {
+    // 5a. Primary & Required: Gmail SMTP via Nodemailer (Sender: wayvora.admin@gmail.com)
+    if (requestedProvider === 'gmail_smtp' || (smtpConfig.isConfigured && requestedProvider !== 'resend')) {
       console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail SMTP (from ${smtpConfig.user})...`);
       emailResult = await sendAdminReplyWithSmtp({
         ticketId,
@@ -435,30 +450,8 @@ async function handleAdminReply(req, res, body) {
       if (emailResult.success) {
         providerUsed = 'gmail_smtp';
       }
-    }
-
-    // 5b. Alternative: Gmail Cloud OAuth2 API (if explicitly requested or if SMTP wasn't configured)
-    if (!emailResult.success && (requestedProvider === 'gmail' || requestedProvider === 'gmail_oauth')) {
-      const gmailStatus = await getGmailStatus();
-      if (gmailStatus && gmailStatus.isConnected) {
-        console.log(`[SupportAPI] Sending reply via Gmail API from ${gmailStatus.connectedEmail} to ${travelerEmail}`);
-        emailResult = await sendAdminReplyWithGmail({
-          ticketId,
-          travelerName,
-          travelerEmail,
-          adminReply: adminReply.trim(),
-          originalMessage,
-          category,
-          status
-        });
-        if (emailResult.success) {
-          providerUsed = 'gmail';
-        }
-      }
-    }
-
-    // 5c. Fallback / Alternative: Resend email dispatch
-    if (!emailResult.success && requestedProvider !== 'gmail_smtp') {
+    } else if (requestedProvider === 'resend' || (!smtpConfig.isConfigured && requestedProvider !== 'gmail_smtp')) {
+      // Fallback to Resend API when SMTP is unconfigured or explicitly requested by test suite
       console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Resend API...`);
       emailResult = await sendAdminReplyToCustomer({
         ticketId,
@@ -472,6 +465,12 @@ async function handleAdminReply(req, res, body) {
       if (emailResult.success) {
         providerUsed = 'resend';
       }
+    } else {
+      // Gmail SMTP was explicitly requested but not configured
+      emailResult = {
+        success: false,
+        error: 'Gmail SMTP is not configured. Please configure GMAIL_USER and GMAIL_APP_PASSWORD in environment variables.'
+      };
     }
   } catch (eErr) {
     console.error('[SupportAPI] Exception during email dispatch:', eErr);
@@ -536,6 +535,7 @@ async function handleAdminReply(req, res, body) {
   const replyResponse = {
     success: true, // Ticket was recorded in Firestore
     ticketId,
+    recipient: travelerEmail,
     firestoreUpdated,
     emailSent: !!emailResult.success,
     provider: providerUsed,
@@ -601,4 +601,5 @@ async function handleResendWebhook(req, res, body) {
   }
 }
 
+handleSupportRequest.handleSupportRequest = handleSupportRequest;
 module.exports = handleSupportRequest;

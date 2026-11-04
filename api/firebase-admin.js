@@ -138,7 +138,7 @@ function initFirebaseAdmin() {
  * Save a new support request in Firestore
  * Collection: support_requests
  */
-async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null }) {
+async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null, source = 'support_ticket' }) {
   const { db } = initFirebaseAdmin();
   if (!db) {
     throw new Error('Firestore Database is not available on the server.');
@@ -152,6 +152,7 @@ async function saveSupportTicket({ name, email, category, message, userId = null
     registeredEmail: (registeredEmail || email || '').trim().toLowerCase(),
     category: category || 'General Inquiry',
     message: (message || '').trim(),
+    source: source || 'support_ticket',
     status: 'open',
     replyHistory: [],
     createdAt: FieldValue.serverTimestamp(),

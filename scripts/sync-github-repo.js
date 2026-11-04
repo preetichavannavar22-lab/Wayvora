@@ -76,6 +76,7 @@ const rootFiles = [
   'package-lock.json',
   'server.js',
   '.env.example',
+  'firestore.rules',
   '.gitignore',
   'README.md'
 ];

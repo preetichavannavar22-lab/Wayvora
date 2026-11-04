@@ -214,11 +214,23 @@ const App = {
       });
     });
 
-    // 12. Contact Support Form Submission (Integrated with Cloud Firestore & Resend API)
+        // 12. Contact Support Form Submission (Integrated with Cloud Firestore & Resend API)
     const contactForm = document.getElementById("form-contact-support");
     if (contactForm) {
       contactForm.addEventListener("submit", async (e) => {
         e.preventDefault();
+
+        // Strict Requirement: Require registration and login before submitting inquiry
+        if (!window.AuthService || !AuthService.isAuthenticated()) {
+          if (window.UI && typeof window.UI.showToast === "function") {
+            window.UI.showToast("Please sign in or register to submit an inquiry.", "warning");
+          }
+          AuthService.requireAuth(() => {
+            if (window.App && App.switchAboutTab) App.switchAboutTab("contact");
+          }, { label: "submit a support inquiry", type: "route", route: "about-contact" });
+          return;
+        }
+
         const nameInput = document.getElementById("contact-name");
         const emailInput = document.getElementById("contact-email");
         const categoryInput = document.getElementById("contact-category");
@@ -290,8 +302,28 @@ const App = {
           const response = await fetch("/api/support", {
             method: "POST",
             headers: headers,
-            body: JSON.stringify({ name, email, category, message, userId, registeredEmail })
+            body: JSON.stringify({
+              name,
+              email: registeredEmail || email,
+              category,
+              message,
+              source: 'about_inquiry',
+              userId,
+              registeredEmail
+            })
           });
+
+          if (response.status === 401 || response.status === 403) {
+            const errPayload = await response.json().catch(() => ({}));
+            const errMsg = errPayload.error || "Please sign in or register to submit an inquiry.";
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast(errMsg, "warning");
+            }
+            if (window.AuthService && typeof AuthService.requireAuth === "function") {
+              AuthService.requireAuth(() => {}, { label: "submit an inquiry" });
+            }
+            return;
+          }
 
           let data = null;
           try {
@@ -388,13 +420,23 @@ const App = {
     const countBadge = document.getElementById("customer-inquiries-count");
     const listEl = document.getElementById("customer-inquiries-list");
     const loginBtn = document.getElementById("customer-inquiries-login-btn");
+    const inquiryAuthPromptBtn = document.getElementById("btn-inquiry-auth-prompt");
+
+    const openInquiryAuth = () => {
+      if (window.AuthService && typeof AuthService.requireAuth === "function") {
+        AuthService.requireAuth(() => {
+          if (window.App && App.switchAboutTab) App.switchAboutTab("contact");
+        }, { label: "submit a support inquiry", type: "route", route: "about-contact" });
+      } else if (window.AuthService && typeof AuthService.openAuthModal === "function") {
+        AuthService.openAuthModal("Sign in to submit or track your support inquiries");
+      }
+    };
 
     if (loginBtn) {
-      loginBtn.addEventListener("click", () => {
-        if (window.AuthService && typeof AuthService.openAuthModal === "function") {
-          AuthService.openAuthModal("Sign in to track your support tickets and replies");
-        }
-      });
+      loginBtn.addEventListener("click", openInquiryAuth);
+    }
+    if (inquiryAuthPromptBtn) {
+      inquiryAuthPromptBtn.addEventListener("click", openInquiryAuth);
     }
 
     let userUnsub = null;
@@ -406,14 +448,22 @@ const App = {
           userUnsub = null;
         }
 
+        const formUnauth = document.getElementById("contact-form-unauth");
+        const formAuth = document.getElementById("contact-form-auth");
+        const verifiedEmailEl = document.getElementById("contact-verified-email");
+
         if (user && user.uid) {
+          if (formUnauth) formUnauth.style.display = "none";
+          if (formAuth) formAuth.style.display = "block";
+          if (verifiedEmailEl) verifiedEmailEl.textContent = user.email || "";
+
           if (unauthBox) unauthBox.style.display = "none";
           if (authBox) authBox.style.display = "block";
 
-          // Auto-fill traveler registered email and name in support form if empty
+          // Auto-fill traveler registered email and name in support form
           const contactEmailEl = document.getElementById("contact-email");
           const contactNameEl = document.getElementById("contact-name");
-          if (contactEmailEl && !contactEmailEl.value && user.email) {
+          if (contactEmailEl && user.email) {
             contactEmailEl.value = user.email;
           }
           if (contactNameEl && !contactNameEl.value && user.displayName) {
@@ -525,6 +575,8 @@ const App = {
             });
           }
         } else {
+          if (formUnauth) formUnauth.style.display = "block";
+          if (formAuth) formAuth.style.display = "none";
           if (unauthBox) unauthBox.style.display = "block";
           if (authBox) authBox.style.display = "none";
           if (countBadge) countBadge.textContent = "0 Tickets";
@@ -537,6 +589,13 @@ const App = {
     const clean = (tabName || "mission").toLowerCase().replace("about-", "").trim();
     const validTabs = ["mission", "philosophy", "tips", "privacy", "contact", "developer"];
     const targetTab = validTabs.includes(clean) ? clean : "mission";
+
+    // Requirement 5: Prompt unauthenticated visitors to sign in / register before accessing contact inquiry form
+    if (targetTab === "contact" && window.AuthService && !AuthService.isAuthenticated()) {
+      AuthService.requireAuth(() => {
+        this.switchAboutTab("contact");
+      }, { label: "access the Contact & Support inquiry form", type: "route", route: "about-contact" });
+    }
 
     document.querySelectorAll(".about-pill").forEach(pill => {
       const isCurrent = pill.getAttribute("data-tab") === targetTab;

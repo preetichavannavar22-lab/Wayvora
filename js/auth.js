@@ -24,6 +24,56 @@ const AuthService = {
     this.initFirebase();
     this.bindGlobalAuthEvents();
     this.updateNavbarUI();
+    this.checkPasswordResetRedirect();
+  },
+
+  /**
+   * Detects and handles Firebase Password Reset Action URLs
+   * e.g. https://wayvora.vercel.app/?mode=resetPassword&oobCode=xyz&apiKey=...
+   */
+  async checkPasswordResetRedirect() {
+    try {
+      if (typeof window === "undefined" || !window.location || !window.location.search) return;
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode");
+      const oobCode = params.get("oobCode");
+
+      if (mode === "resetPassword" && oobCode) {
+        console.log("AuthService: Detected password reset action URL (mode=resetPassword).");
+
+        let retries = 0;
+        const checkAuthReady = setInterval(async () => {
+          retries++;
+          if (this.firebaseAuth || retries > 10) {
+            clearInterval(checkAuthReady);
+            if (!this.firebaseAuth && typeof firebase !== "undefined" && typeof firebase.auth === "function") {
+              this.firebaseAuth = firebase.auth();
+              this.firebaseActive = true;
+            }
+
+            if (this.firebaseAuth && typeof this.firebaseAuth.verifyPasswordResetCode === "function") {
+              try {
+                const targetEmail = await this.firebaseAuth.verifyPasswordResetCode(oobCode);
+                this.pendingResetOobCode = oobCode;
+                this.pendingResetEmail = targetEmail;
+
+                // Open modal in confirm_reset panel
+                this.openAuthModal(null, "confirm_reset");
+                const emailDisplay = document.getElementById("reset-email-text");
+                if (emailDisplay) emailDisplay.textContent = targetEmail;
+                this.setAuthSuccess(`Verified password-reset link for ${targetEmail}. Please create your new WAYVORA password.`);
+              } catch (verifyErr) {
+                console.error("verifyPasswordResetCode error:", verifyErr);
+                this.openAuthModal(null, "forgot");
+                this.setAuthError("This password-reset link is invalid, expired, or has already been used. Please request a new link.");
+              }
+            }
+          }
+        }, 200);
+      }
+    } catch (e) {
+      console.warn("Could not check password reset redirect:", e);
+    }
   },
 
   /**
@@ -352,6 +402,34 @@ const AuthService = {
   },
 
   /**
+   * Completes the password reset process using Firebase Authentication confirmPasswordReset
+   */
+  async confirmPasswordReset(oobCode, newPassword) {
+    if (!oobCode) {
+      throw new Error("Missing password reset action code.");
+    }
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error("Password must be at least 6 characters long.");
+    }
+
+    if (!this.firebaseAuth && typeof firebase !== "undefined" && typeof firebase.auth === "function") {
+      this.firebaseAuth = firebase.auth();
+      this.firebaseActive = true;
+    }
+
+    if (this.firebaseActive && this.firebaseAuth && typeof this.firebaseAuth.confirmPasswordReset === "function") {
+      try {
+        await this.firebaseAuth.confirmPasswordReset(oobCode, newPassword);
+        return true;
+      } catch (err) {
+        throw new Error(this.getHumanReadableError(err));
+      }
+    } else {
+      throw new Error("Firebase Authentication is not ready to confirm password reset.");
+    }
+  },
+
+  /**
    * Demo Mode Login (Allows testing all protected features even before user pastes keys)
    */
   loginDemoUser(customName = "Alex Explorer", customEmail = "alex.traveler@wayvora.com") {
@@ -515,6 +593,10 @@ const AuthService = {
       case "auth/wrong-password":
       case "auth/invalid-credential":
         return "Incorrect email or password. Please verify and try again.";
+      case "auth/expired-action-code":
+        return "This password reset link has expired. Please request a new password reset link.";
+      case "auth/invalid-action-code":
+        return "This password reset link is invalid or has already been used. Please request a new link.";
       case "auth/email-already-in-use":
         return "An account with this email address already exists. Try signing in instead.";
       case "auth/weak-password":
@@ -699,7 +781,7 @@ const AuthService = {
   switchAuthTab(tabName) {
     const tabsNav = document.getElementById("auth-tabs-nav");
     if (tabsNav) {
-      tabsNav.style.display = tabName === "forgot" ? "none" : "flex";
+      tabsNav.style.display = (tabName === "forgot" || tabName === "confirm_reset") ? "none" : "flex";
     }
 
     const tabs = document.querySelectorAll(".auth-tab-btn");
@@ -708,7 +790,8 @@ const AuthService = {
     const panels = {
       login: document.getElementById("auth-panel-login"),
       signup: document.getElementById("auth-panel-signup"),
-      forgot: document.getElementById("auth-panel-forgot")
+      forgot: document.getElementById("auth-panel-forgot"),
+      confirm_reset: document.getElementById("auth-panel-confirm-reset")
     };
 
     Object.keys(panels).forEach(key => {
@@ -860,7 +943,7 @@ const AuthService = {
         <div class="auth-panel" id="auth-panel-login">
           <form id="form-auth-login" class="auth-form" novalidate>
             <div class="form-group">
-              <label for="login-email">Email Address</label>
+              <label for="login-email">Registered Email Address</label>
               <div class="input-with-icon">
                 <span class="input-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
@@ -870,12 +953,12 @@ const AuthService = {
             </div>
 
             <div class="form-group mb-1">
-              <label for="login-password">Password</label>
+              <label for="login-password">WAYVORA Password</label>
               <div class="input-with-icon">
                 <span class="input-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 </span>
-                <input type="password" id="login-password" class="form-control has-toggle-password" placeholder="••••••••" required autocomplete="current-password" />
+                <input type="password" id="login-password" class="form-control has-toggle-password" placeholder="Enter your WAYVORA password" required autocomplete="current-password" />
                 <button type="button" class="btn-toggle-password" data-target="login-password" aria-label="Show password" title="Show password">
                   ${this.icons.eye}
                 </button>
@@ -922,12 +1005,13 @@ const AuthService = {
             </div>
 
             <div class="form-group">
-              <label for="signup-password">Password (minimum 6 characters)</label>
+              <label for="signup-password">Create WAYVORA Password</label>
+              <span class="text-xs text-muted block mb-1">Create a unique password (min. 6 characters). <strong>Do NOT enter your personal Gmail or Google account password.</strong></span>
               <div class="input-with-icon">
                 <span class="input-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 </span>
-                <input type="password" id="signup-password" class="form-control has-toggle-password" placeholder="At least 6 characters" minlength="6" required autocomplete="new-password" />
+                <input type="password" id="signup-password" class="form-control has-toggle-password" placeholder="Create a strong password (min 6 characters)" minlength="6" required autocomplete="new-password" />
                 <button type="button" class="btn-toggle-password" data-target="signup-password" aria-label="Show password" title="Show password">
                   ${this.icons.eye}
                 </button>
@@ -935,12 +1019,12 @@ const AuthService = {
             </div>
 
             <div class="form-group">
-              <label for="signup-confirm-password">Confirm Password</label>
+              <label for="signup-confirm-password">Confirm WAYVORA Password</label>
               <div class="input-with-icon">
                 <span class="input-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 </span>
-                <input type="password" id="signup-confirm-password" class="form-control has-toggle-password" placeholder="Repeat your password" minlength="6" required autocomplete="new-password" />
+                <input type="password" id="signup-confirm-password" class="form-control has-toggle-password" placeholder="Repeat your WAYVORA password" minlength="6" required autocomplete="new-password" />
                 <button type="button" class="btn-toggle-password" data-target="signup-confirm-password" aria-label="Show password" title="Show password">
                   ${this.icons.eye}
                 </button>
@@ -988,6 +1072,56 @@ const AuthService = {
           </div>
         </div>
 
+        <!-- ================= PANEL 4: CONFIRM PASSWORD RESET ================= -->
+        <div class="auth-panel" id="auth-panel-confirm-reset" style="display: none;">
+          <div class="auth-panel-header mb-3">
+            <h3 class="font-bold text-lg" style="color: var(--text-main); margin-bottom: 0.25rem;">Create New WAYVORA Password</h3>
+            <p class="text-muted text-sm">
+              Your password-reset link has been verified. Please create and confirm your new WAYVORA password below.
+            </p>
+            <div class="alert alert-info py-2 px-3 mb-2 text-xs" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px;">
+              Resetting account: <strong id="reset-email-text" style="color: #0284c7;">traveler@example.com</strong>
+            </div>
+          </div>
+
+          <form id="form-auth-confirm-reset" class="auth-form" novalidate>
+            <div class="form-group">
+              <label for="reset-new-password">New WAYVORA Password</label>
+              <span class="text-xs text-muted block mb-1">Create a unique password (min 6 characters). <strong>Do NOT enter your Gmail password.</strong></span>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </span>
+                <input type="password" id="reset-new-password" class="form-control has-toggle-password" placeholder="At least 6 characters" minlength="6" required autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="reset-new-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="reset-confirm-password">Confirm New WAYVORA Password</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </span>
+                <input type="password" id="reset-confirm-password" class="form-control has-toggle-password" placeholder="Re-enter your new password" minlength="6" required autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="reset-confirm-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg mt-3" id="btn-submit-reset-confirm">
+              Save New Password &amp; Sign In
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt mt-3">
+            <button type="button" class="btn-text-link font-semibold" id="link-reset-to-login">← Back to Sign In</button>
+          </div>
+        </div>
+
       </div>
     `;
 
@@ -1009,6 +1143,7 @@ const AuthService = {
     modal.querySelector("#link-goto-login")?.addEventListener("click", () => this.switchAuthTab("login"));
     modal.querySelector("#link-goto-forgot")?.addEventListener("click", () => this.switchAuthTab("forgot"));
     modal.querySelector("#link-back-login")?.addEventListener("click", () => this.switchAuthTab("login"));
+    modal.querySelector("#link-reset-to-login")?.addEventListener("click", () => this.switchAuthTab("login"));
 
     // Toggle Password Visibility (Show / Hide Password)
     modal.querySelectorAll(".btn-toggle-password").forEach(btn => {
@@ -1102,13 +1237,84 @@ const AuthService = {
         submitBtn.disabled = true;
         submitBtn.textContent = "Requesting Reset Link from Firebase...";
         await this.resetPassword(email);
-        this.setAuthSuccess(`Password reset email successfully requested! If an account exists for ${email}, a password-reset link has been dispatched to your inbox. Please check your spam or junk folder if you don't see it within a few minutes.`);
-        if (window.UI) UI.showToast("Password reset link requested from Firebase!", "success");
+        this.setAuthSuccess(`If an account exists for ${email}, a password-reset link has been dispatched to your inbox. Please check your spam or junk folder if you don't see it within a few minutes.`);
+        if (window.UI) UI.showToast("Password reset request submitted!", "success");
       } catch (err) {
-        this.setAuthError(err.message);
+        if (err.code === "auth/user-not-found" || (err.message && err.message.includes("user-not-found"))) {
+          this.setAuthSuccess(`If an account exists for ${email}, a password-reset link has been dispatched to your inbox. Please check your spam or junk folder.`);
+        } else {
+          this.setAuthError(err.message);
+        }
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = "Send Password Reset Link";
+      }
+    });
+
+    // 4. Confirm Password Reset (New Password)
+    modal.querySelector("#form-auth-confirm-reset")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      this.setAuthError("");
+      this.setAuthSuccess("");
+      const newPass = document.getElementById("reset-new-password")?.value || "";
+      const confirmPass = document.getElementById("reset-confirm-password")?.value || "";
+      const submitBtn = document.getElementById("btn-submit-reset-confirm");
+
+      if (!newPass || newPass.length < 6) {
+        this.setAuthError("Password must be at least 6 characters long.");
+        return;
+      }
+
+      if (newPass !== confirmPass) {
+        this.setAuthError("Passwords do not match. Please verify that both password fields are identical.");
+        return;
+      }
+
+      const oobCode = this.pendingResetOobCode;
+      if (!oobCode) {
+        this.setAuthError("Password reset session expired. Please request a new reset link.");
+        return;
+      }
+
+      try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Updating Password...";
+        }
+        await this.confirmPasswordReset(oobCode, newPass);
+
+        const email = this.pendingResetEmail || "";
+        this.pendingResetOobCode = null;
+        this.pendingResetEmail = null;
+
+        // Clean query parameters from URL
+        try {
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch (uErr) {}
+
+        // Switch to sign in tab with email prefilled
+        this.switchAuthTab("login");
+        if (email) {
+          const loginEmail = document.getElementById("login-email");
+          if (loginEmail) loginEmail.value = email;
+          const loginPass = document.getElementById("login-password");
+          if (loginPass) {
+            loginPass.value = "";
+            loginPass.focus();
+          }
+        }
+
+        this.setAuthSuccess("Your WAYVORA password has been updated successfully! Please sign in with your new password.");
+        if (window.UI) UI.showToast("Password updated successfully! Please sign in.", "success");
+
+      } catch (err) {
+        this.setAuthError(err.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Save New Password & Sign In";
+        }
       }
     });
   },

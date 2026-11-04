@@ -1013,37 +1013,59 @@
               <!-- Error & Warning Alert Banner (Initially Hidden) -->
               <div class="alert alert-danger mb-3" id="contact-error-banner" style="display: none;" role="alert"></div>
 
-              <form id="form-contact-support" novalidate>
-                <div class="form-group mb-3">
-                  <label for="contact-name" class="font-bold text-sm block mb-1">Your Full Name <span class="text-danger">*</span></label>
-                  <input type="text" id="contact-name" class="form-control" placeholder="e.g. Alex Morgan" required />
+              <!-- Unauthenticated State: Sign In / Register Prompt -->
+              <div id="contact-form-unauth" class="contact-auth-prompt-card" style="text-align: center; padding: 2.2rem 1.5rem; background: var(--bg-card, #ffffff); border-radius: 12px; border: 1px dashed var(--border-color, #cbd5e1); margin-bottom: 1rem;">
+                <div style="font-size: 2.4rem; margin-bottom: 0.75rem;">🔒</div>
+                <h3 style="margin-bottom: 0.5rem; color: var(--text-main, #0f172a); font-size: 1.25rem;">Registered Travelers Only</h3>
+                <p class="text-sm text-muted mb-4" style="max-width: 440px; margin: 0 auto 1.25rem; line-height: 1.6; color: #64748b;">
+                  To ensure authentic inquiries and prevent spam, please sign in or register your WAYVORA account to access and submit an official support inquiry.
+                </p>
+                <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-primary btn-md" id="btn-inquiry-auth-prompt">
+                    Sign In / Register to Submit Inquiry
+                  </button>
+                </div>
+              </div>
+
+              <!-- Authenticated State: Active Inquiry Form -->
+              <div id="contact-form-auth" style="display: none;">
+                <div class="alert alert-info py-2 px-3 mb-3 text-xs" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
+                  <span id="contact-account-indicator" style="color: #0369a1; font-weight: 600;">Signed in as: <strong id="contact-verified-email">traveler@example.com</strong></span>
+                  <span class="admin-status-badge badge-success" style="font-size: 10px; padding: 2px 6px;">✓ Verified Account</span>
                 </div>
 
-                <div class="form-group mb-3">
-                  <label for="contact-email" class="font-bold text-sm block mb-1">Email Address <span class="text-danger">*</span></label>
-                  <input type="email" id="contact-email" class="form-control" placeholder="alex@example.com" required />
-                </div>
+                <form id="form-contact-support" novalidate>
+                  <div class="form-group mb-3">
+                    <label for="contact-name" class="font-bold text-sm block mb-1">Your Full Name <span class="text-danger">*</span></label>
+                    <input type="text" id="contact-name" class="form-control" placeholder="e.g. Alex Morgan" required />
+                  </div>
 
-                <div class="form-group mb-3">
-                  <label for="contact-category" class="font-bold text-sm block mb-1">Inquiry Category</label>
-                  <select id="contact-category" class="form-control">
-                    <option value="planning">Trip Planning Help</option>
-                    <option value="feature">Feature Suggestion</option>
-                    <option value="bug">Report a Display or Bug Issue</option>
-                    <option value="general">General Question</option>
-                    <option value="partnership">Partnership & Collaboration</option>
-                  </select>
-                </div>
+                  <div class="form-group mb-3">
+                    <label for="contact-email" class="font-bold text-sm block mb-1">Registered Email Address <span class="text-danger">*</span></label>
+                    <input type="email" id="contact-email" class="form-control" placeholder="alex@example.com" readonly style="background-color: var(--bg-subtle, #f1f5f9); cursor: not-allowed;" title="Verified registered WAYVORA account email" required />
+                  </div>
 
-                <div class="form-group mb-3">
-                  <label for="contact-message" class="font-bold text-sm block mb-1">Your Message <span class="text-danger">*</span></label>
-                  <textarea id="contact-message" class="form-control" rows="4" placeholder="How can we assist your travel planning today?" required></textarea>
-                </div>
+                  <div class="form-group mb-3">
+                    <label for="contact-category" class="font-bold text-sm block mb-1">Inquiry Category</label>
+                    <select id="contact-category" class="form-control">
+                      <option value="planning">Trip Planning Help</option>
+                      <option value="feature">Feature Suggestion</option>
+                      <option value="bug">Report a Display or Bug Issue</option>
+                      <option value="general">General Question</option>
+                      <option value="partnership">Partnership & Collaboration</option>
+                    </select>
+                  </div>
 
-                <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-submit-contact">
-                  Send Message to Support
-                </button>
-              </form>
+                  <div class="form-group mb-3">
+                    <label for="contact-message" class="font-bold text-sm block mb-1">Your Message <span class="text-danger">*</span></label>
+                    <textarea id="contact-message" class="form-control" rows="4" placeholder="How can we assist your travel planning today?" required></textarea>
+                  </div>
+
+                  <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-submit-contact">
+                    Send Message to Support
+                  </button>
+                </form>
+              </div>
             </div>
 
             <!-- Contact Information & Project Details -->

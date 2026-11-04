@@ -68,10 +68,11 @@ service cloud.firestore {
         && request.resource.data.get('userId', resource.data.get('userId', userId)) == resource.data.get('userId', userId);
     }
 
-    // Validates incoming customer support / contact form inquiries
+    // Validates incoming customer support / contact form inquiries (strictly registered, authenticated users)
     function validSupportRequest() {
       let data = request.resource.data;
-      return data.get('name', '') is string 
+      return isAuthenticated()
+          && data.get('name', '') is string 
           && data.get('name', '').size() > 0 
           && data.get('name', '').size() <= 100
           && data.get('email', '') is string 
@@ -80,11 +81,7 @@ service cloud.firestore {
           && data.get('message', '') is string 
           && data.get('message', '').size() > 0 
           && data.get('message', '').size() <= 5000
-          && (
-            isAuthenticated()
-              ? ('userId' in data && data.userId == request.auth.uid)
-              : !('userId' in data)
-          );
+          && ('userId' in data && data.userId == request.auth.uid);
     }
 
     // =======================================================================
@@ -132,7 +129,7 @@ service cloud.firestore {
     // 4. Support & Contact Inquiries (/support_requests/{requestId})
     // =======================================================================
     match /support_requests/{requestId} {
-      // Anyone (guest or authenticated) can submit a valid support request
+      // Strictly registered, authenticated travelers can submit inquiries
       allow create: if validSupportRequest();
 
       // Administrator can view ALL tickets; customers can ONLY view their own tickets
@@ -142,6 +139,14 @@ service cloud.firestore {
       allow update: if isAdmin();
 
       // Only official administrators can delete or archive inquiries
+      allow delete: if isAdmin();
+    }
+
+    match /support_tickets/{ticketId} {
+      // Strictly registered, authenticated travelers can submit inquiries
+      allow create: if validSupportRequest();
+      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.get('userId', '') == request.auth.uid);
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 

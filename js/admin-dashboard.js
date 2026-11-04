@@ -210,6 +210,12 @@ const AdminDashboard = {
         if (this.activeFilter === "in_progress") {
           return s === "in_progress" || s === "progress";
         }
+        if (this.activeFilter === "about_inquiry") {
+          return t.source === "about_inquiry" || t.category === "planning" || t.category === "feature";
+        }
+        if (this.activeFilter === "support_ticket") {
+          return t.source !== "about_inquiry" && t.category !== "planning" && t.category !== "feature";
+        }
         return s === this.activeFilter;
       });
     }
@@ -256,6 +262,7 @@ const AdminDashboard = {
       }
 
       const hasReply = !!t.adminReply;
+      const isAboutInquiry = t.source === "about_inquiry" || t.category === "planning" || t.category === "feature";
 
       return `
         <div class="admin-ticket-card ${hasReply ? 'ticket-replied' : ''}" data-ticket-id="${t.id}" role="button" tabindex="0" title="Click to view details or respond to this inquiry">
@@ -264,10 +271,13 @@ const AdminDashboard = {
               <span class="admin-ticket-avatar">${(t.name || "U").charAt(0).toUpperCase()}</span>
               <div>
                 <strong class="admin-ticket-name">${this.escapeHtml(t.name || "Anonymous Traveler")}</strong>
-                <span class="admin-ticket-email">${this.escapeHtml(t.email || "No email")}</span>
+                <span class="admin-ticket-email">${this.escapeHtml(t.registeredEmail || t.email || "No email")}</span>
               </div>
             </div>
             <div class="admin-ticket-meta">
+              <span class="admin-source-badge" style="background: ${isAboutInquiry ? 'rgba(139, 92, 246, 0.15)' : 'rgba(56, 189, 248, 0.15)'}; color: ${isAboutInquiry ? '#a855f7' : '#0284c7'}; border: 1px solid ${isAboutInquiry ? 'rgba(168, 85, 247, 0.35)' : 'rgba(56, 189, 248, 0.35)'}; padding: 2px 7px; border-radius: 9999px; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                ${isAboutInquiry ? '📝 About Inquiry' : '🎫 Support Ticket'}
+              </span>
               <span class="admin-status-badge ${statusBadgeClass}">${statusLabel}</span>
               <span class="admin-ticket-date">${dateStr}</span>
             </div>
@@ -327,6 +337,14 @@ const AdminDashboard = {
     document.getElementById("manage-ticket-message").textContent = ticket.message || "";
     document.getElementById("manage-ticket-status").value = (ticket.status || "open").toLowerCase();
     document.getElementById("manage-ticket-reply").value = ticket.adminReply || "";
+
+    const isAboutInquiry = ticket.source === "about_inquiry" || ticket.category === "planning" || ticket.category === "feature";
+    const originEl = document.getElementById("manage-ticket-origin");
+    if (originEl) {
+      originEl.innerHTML = isAboutInquiry
+        ? '<span style="color: #a855f7; font-weight: 700;">📝 About Section Inquiry</span>'
+        : '<span style="color: #38bdf8; font-weight: 700;">🎫 Support Portal Ticket</span>';
+    }
 
     // Render previous reply history if present
     const historyBox = document.getElementById("manage-ticket-history-box");
@@ -1094,7 +1112,9 @@ const AdminDashboard = {
         <!-- Support Inbox Controls -->
         <div class="admin-inbox-controls">
           <div class="admin-filters-group">
-            <button type="button" class="admin-filter-pill active" data-filter="all">All Inquiries</button>
+            <button type="button" class="admin-filter-pill active" data-filter="all">All Requests</button>
+            <button type="button" class="admin-filter-pill" data-filter="about_inquiry">📝 About Inquiries</button>
+            <button type="button" class="admin-filter-pill" data-filter="support_ticket">🎫 Support Tickets</button>
             <button type="button" class="admin-filter-pill" data-filter="open">Open</button>
             <button type="button" class="admin-filter-pill" data-filter="in_progress">In Progress</button>
             <button type="button" class="admin-filter-pill" data-filter="resolved">Resolved</button>
@@ -1144,6 +1164,10 @@ const AdminDashboard = {
             <div>
               <span class="text-xs text-muted block">Category</span>
               <span id="manage-ticket-category">-</span>
+            </div>
+            <div>
+              <span class="text-xs text-muted block">Inquiry Origin</span>
+              <span id="manage-ticket-origin">-</span>
             </div>
           </div>
 

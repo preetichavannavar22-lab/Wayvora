@@ -415,8 +415,13 @@ async function sendTestEmailWithSmtp({ to }) {
   });
 }
 
+function getAdminEmail() {
+  return getConfig().user;
+}
+
 module.exports = {
   getConfig,
+  getAdminEmail,
   createTransporter,
   verifySmtpConnection,
   sendEmailWithSmtp,
