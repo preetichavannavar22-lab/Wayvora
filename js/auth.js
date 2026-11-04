@@ -286,22 +286,67 @@ const AuthService = {
 
   /**
    * Password Reset Email
+   * Dispatches live password reset email through Google Firebase Authentication
    */
   async resetPassword(email) {
     if (!email || !this.isValidEmail(email)) {
       throw new Error("Please enter a valid email address.");
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Re-verify Firebase Auth instance availability
+    if (!this.firebaseAuth) {
+      this.initFirebase();
+    }
+    if (!this.firebaseAuth && typeof window !== "undefined" && window.firebaseAuth) {
+      this.firebaseAuth = window.firebaseAuth;
+      this.firebaseActive = true;
+    }
+    if (!this.firebaseAuth && typeof firebase !== "undefined" && typeof firebase.auth === "function") {
+      this.firebaseAuth = firebase.auth();
+      this.firebaseActive = true;
+    }
+
     if (this.firebaseActive && this.firebaseAuth) {
       try {
-        await this.firebaseAuth.sendPasswordResetEmail(email);
+        // Build optional action code settings if running on an authorized domain
+        let actionCodeSettings = null;
+        if (typeof window !== "undefined" && window.location && window.location.origin) {
+          const origin = window.location.origin;
+          const host = window.location.hostname;
+          if (host === "localhost" || host === "127.0.0.1" || host.includes("wayvora") || host.endsWith(".firebaseapp.com") || host.endsWith(".web.app") || host.endsWith(".vercel.app")) {
+            actionCodeSettings = {
+              url: origin,
+              handleCodeInApp: false
+            };
+          }
+        }
+
+        try {
+          if (actionCodeSettings) {
+            await this.firebaseAuth.sendPasswordResetEmail(cleanEmail, actionCodeSettings);
+          } else {
+            await this.firebaseAuth.sendPasswordResetEmail(cleanEmail);
+          }
+        } catch (firstErr) {
+          // If actionCodeSettings caused continue-uri error, safely retry with default Firebase action handler
+          if (actionCodeSettings && (firstErr.code === "auth/unauthorized-continue-uri" || firstErr.code === "auth/invalid-continue-uri")) {
+            console.warn("Retrying password reset without actionCodeSettings:", firstErr.message);
+            await this.firebaseAuth.sendPasswordResetEmail(cleanEmail);
+          } else {
+            throw firstErr;
+          }
+        }
+
         return true;
       } catch (err) {
+        console.error("Firebase sendPasswordResetEmail error:", err);
         throw new Error(this.getHumanReadableError(err));
       }
     } else {
       throw new Error(
-        "Firebase credentials not detected. Please add your Firebase API keys to js/firebase-config.js to send live password reset emails."
+        "Firebase credentials not detected. Please verify your Firebase API keys in js/firebase-config.js to send live password reset emails."
       );
     }
   },
@@ -462,7 +507,7 @@ const AuthService = {
 
     switch (code) {
       case "auth/invalid-email":
-        return "The email address is formatted incorrectly.";
+        return "The email address is formatted incorrectly. Please enter a valid email address.";
       case "auth/user-not-found":
         return "No account found with this email address. Please verify your email or create an account.";
       case "auth/missing-email":
@@ -474,10 +519,23 @@ const AuthService = {
         return "An account with this email address already exists. Try signing in instead.";
       case "auth/weak-password":
         return "Password is too weak. Please use at least 6 characters.";
+      case "auth/unauthorized-domain":
+        return "This website domain is not authorized for Firebase Authentication operations. Please ensure this domain is added to authorized domains in the Firebase Console.";
+      case "auth/unauthorized-continue-uri":
+      case "auth/invalid-continue-uri":
+        return "The redirect URL is not authorized by project configuration.";
+      case "auth/user-disabled":
+        return "This account has been disabled by an administrator. Please contact support.";
+      case "auth/operation-not-allowed":
+        return "Password reset via email is currently disabled in Firebase. Please enable Email/Password provider in the Firebase Console.";
+      case "auth/quota-exceeded":
+        return "Password reset quota has been exceeded. Please try again later.";
       case "auth/network-request-failed":
         return "Network connection issue. Please check your internet connection.";
       case "auth/too-many-requests":
         return "Too many unsuccessful attempts. Please wait a few moments before trying again.";
+      case "auth/internal-error":
+        return "An internal Firebase Authentication error occurred. Please try again.";
       default:
         return msg || "Authentication request failed. Please check your credentials.";
     }
@@ -691,6 +749,11 @@ const AuthService = {
 
   setAuthError(message) {
     const errContainer = document.getElementById("auth-error-banner");
+    const succContainer = document.getElementById("auth-success-banner");
+    if (message && succContainer) {
+      succContainer.textContent = "";
+      succContainer.style.display = "none";
+    }
     if (errContainer) {
       if (message) {
         errContainer.textContent = message;
@@ -703,7 +766,12 @@ const AuthService = {
   },
 
   setAuthSuccess(message) {
+    const errContainer = document.getElementById("auth-error-banner");
     const succContainer = document.getElementById("auth-success-banner");
+    if (message && errContainer) {
+      errContainer.textContent = "";
+      errContainer.style.display = "none";
+    }
     if (succContainer) {
       if (message) {
         succContainer.textContent = message;
@@ -1016,7 +1084,8 @@ const AuthService = {
       e.preventDefault();
       this.setAuthError("");
       this.setAuthSuccess("");
-      const email = document.getElementById("forgot-email").value.trim();
+      const emailInput = document.getElementById("forgot-email");
+      const email = emailInput ? emailInput.value.trim() : "";
       const submitBtn = document.getElementById("btn-submit-forgot");
 
       if (!email) {
@@ -1031,10 +1100,10 @@ const AuthService = {
 
       try {
         submitBtn.disabled = true;
-        submitBtn.textContent = "Sending Reset Link...";
+        submitBtn.textContent = "Requesting Reset Link from Firebase...";
         await this.resetPassword(email);
-        this.setAuthSuccess(`Password reset email sent! Please check your inbox at ${email} for instructions to reset your password.`);
-        if (window.UI) UI.showToast("Password reset link sent to your email!", "success");
+        this.setAuthSuccess(`Password reset email successfully requested! If an account exists for ${email}, a password-reset link has been dispatched to your inbox. Please check your spam or junk folder if you don't see it within a few minutes.`);
+        if (window.UI) UI.showToast("Password reset link requested from Firebase!", "success");
       } catch (err) {
         this.setAuthError(err.message);
       } finally {
@@ -1150,15 +1219,19 @@ const AuthService = {
 };
 
 // Global export
-window.AuthService = AuthService;
+if (typeof window !== "undefined") {
+  window.AuthService = AuthService;
+}
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = AuthService;
 }
 
 // Auto initialize on DOMContentLoaded or immediately if DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => AuthService.init());
-} else {
-  AuthService.init();
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => AuthService.init());
+  } else {
+    AuthService.init();
+  }
 }

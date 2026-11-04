@@ -278,7 +278,14 @@ const AdminDashboard = {
             <p class="admin-ticket-message">${this.escapeHtml(t.message || "")}</p>
             ${hasReply ? `
               <div class="admin-existing-reply">
-                <span class="text-xs font-bold text-primary">✓ Official Response Sent:</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span class="text-xs font-bold text-primary">✓ Official Response:</span>
+                  ${t.replyEmailStatus ? `
+                    <span class="admin-status-badge ${t.replyEmailStatus.status === 'delivered' || t.replyEmailStatus.sent ? 'badge-success' : 'badge-warning'}" style="font-size: 10px; padding: 2px 6px;" title="${t.replyEmailStatus.id ? ((t.replyEmailStatus.provider === 'gmail_smtp' ? 'Gmail SMTP ID: ' : (t.replyEmailStatus.provider === 'gmail' ? 'Gmail API ID: ' : 'Resend ID: ')) + t.replyEmailStatus.id) : (t.replyEmailStatus.error || '')}">
+                      ${t.replyEmailStatus.status === 'delivered' ? '✓ Delivered' : (t.replyEmailStatus.sent ? (t.replyEmailStatus.provider === 'gmail_smtp' ? '✉️ Gmail SMTP Sent' : (t.replyEmailStatus.provider === 'gmail' ? '✉️ Gmail API Sent' : '✉️ Resend Sent')) : '❌ Email Failed')}
+                    </span>
+                  ` : ''}
+                </div>
                 <p class="text-sm">${this.escapeHtml(t.adminReply)}</p>
               </div>
             ` : ''}
@@ -348,10 +355,13 @@ const AdminDashboard = {
       }
     }
 
-    // Show email dispatch channel indicator (Gmail API vs Resend)
+    // Show email dispatch channel indicator (Gmail SMTP vs Gmail API vs Resend)
     const channelInd = document.getElementById("manage-ticket-channel-indicator");
     if (channelInd) {
-      if (this.gmailStatus && this.gmailStatus.isConnected) {
+      if (this.gmailStatus && (this.gmailStatus.method === 'smtp' || this.gmailStatus.provider === 'gmail_smtp')) {
+        channelInd.innerHTML = `📬 Channel: <strong>Gmail SMTP</strong> (${this.escapeHtml(this.gmailStatus.connectedEmail || 'wayvora.admin@gmail.com')})`;
+        channelInd.style.color = "#4ade80";
+      } else if (this.gmailStatus && this.gmailStatus.isConnected) {
         channelInd.innerHTML = `📬 Channel: <strong>Gmail API</strong> (${this.escapeHtml(this.gmailStatus.connectedEmail || 'wayvora.admin@gmail.com')})`;
         channelInd.style.color = "#38bdf8";
       } else {
@@ -397,15 +407,31 @@ const AdminDashboard = {
       let idToken = null;
       if (window.firebaseAuth && window.firebaseAuth.currentUser && typeof window.firebaseAuth.currentUser.getIdToken === "function") {
         try {
-          idToken = await window.firebaseAuth.currentUser.getIdToken();
+          idToken = await window.firebaseAuth.currentUser.getIdToken(true);
         } catch (tErr) {
-          // Token retrieval non-fatal
+          // Token retrieval failed
         }
       }
 
+      if (!idToken) {
+        if (window.UI && typeof window.UI.showToast === "function") {
+          window.UI.showToast("Admin session expired. Please sign in with your administrator account.", "warning");
+        }
+        if (window.AuthService && typeof window.AuthService.openAuthModal === "function") {
+          window.AuthService.openAuthModal("Please sign in with your administrator account to send official replies.");
+        }
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save Changes & Send Reply";
+        }
+        return;
+      }
+
       // 1. Submit through secure backend /api/support/reply
-      const headers = { "Content-Type": "application/json" };
-      if (idToken) headers["Authorization"] = `Bearer ${idToken}`;
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${idToken}`
+      };
 
       let backendSuccess = false;
       let emailDelivered = false;
@@ -428,38 +454,65 @@ const AdminDashboard = {
           })
         });
 
+        if (response.status === 401 || response.status === 403) {
+          const errPayload = await response.json().catch(() => ({}));
+          const errMsg = errPayload.error || "Forbidden: Only authenticated administrators can send replies.";
+          if (window.UI && typeof window.UI.showToast === "function") {
+            window.UI.showToast(errMsg, "error");
+          }
+          alert(errMsg);
+          if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save Changes & Send Reply";
+          }
+          return;
+        }
+
         if (response.ok) {
           responseData = await response.json();
           backendSuccess = !!responseData.success;
           emailDelivered = !!responseData.emailSent;
+        } else {
+          const errPayload = await response.json().catch(() => ({}));
+          throw new Error(errPayload.error || `Server responded with HTTP ${response.status}`);
         }
       } catch (fetchErr) {
-        console.warn("Backend /api/support/reply unreachable, falling back to direct Firestore update:", fetchErr.message);
+        console.error("Backend /api/support/reply error:", fetchErr);
+        if (window.UI && typeof window.UI.showToast === "function") {
+          window.UI.showToast(`Error communicating with backend: ${fetchErr.message}`, "error");
+        }
+        alert("Failed to submit reply: " + fetchErr.message);
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save Changes & Send Reply";
+        }
+        return;
       }
 
-      // 2. Fallback to direct client FirestoreService update if backend endpoint was unreachable
-      if (!backendSuccess) {
-        await FirestoreService.updateSupportRequest(this.activeTicket.id, {
-          status: status,
-          adminReply: adminReply
-        });
-      }
-
-      // 3. Show accurate toast notifications (Never claim "Email sent" if it failed)
+      // 2. Show accurate toast notifications (Never claim "Message sent" if email delivery failed)
       if (window.UI && typeof window.UI.showToast === "function") {
         if (emailDelivered) {
-          const providerText = (responseData && responseData.provider === 'gmail')
-            ? 'via Gmail API (wayvora.admin@gmail.com)'
-            : 'via Resend';
-          window.UI.showToast(`Support ticket updated and official reply dispatched ${providerText}!`, "success");
-        } else if (adminReply && responseData && responseData.emailDelivery && !responseData.emailDelivery.success) {
+          const recEmail = (responseData && responseData.emailDelivery && responseData.emailDelivery.recipient) || this.activeTicket.registeredEmail || this.activeTicket.email;
+          const provider = (responseData && responseData.provider) || (responseData && responseData.emailDelivery && responseData.emailDelivery.provider) || 'gmail_smtp';
+          const providerName = provider === 'gmail_smtp'
+            ? 'Gmail SMTP'
+            : (provider === 'gmail' ? 'Gmail API' : 'Resend');
+          const idVal = (responseData && responseData.emailDelivery && responseData.emailDelivery.id) || '';
+          const idText = idVal ? ` (ID: ${idVal.slice(0, 10)}...)` : '';
+          window.UI.showToast(`Ticket updated & official reply delivered to ${recEmail} via ${providerName}${idText}!`, "success");
+        } else if (adminReply && responseData && responseData.emailDelivery && !responseData.emailDelivery.sent) {
           const errReason = responseData.emailDelivery.error || "Email delivery failed";
-          window.UI.showToast(`Ticket updated, but email delivery failed: ${errReason}`, "warning");
+          window.UI.showToast(`Ticket updated in database, but email delivery to customer failed: ${errReason}`, "warning");
         } else if (adminReply) {
-          window.UI.showToast("Ticket updated in database. (Email dispatch unavailable or pending configuration)", "info");
+          window.UI.showToast("Ticket updated in database. (Email delivery could not be verified)", "info");
         } else {
           window.UI.showToast("Support ticket status updated.", "success");
         }
+      }
+
+      // 3. Refresh tickets list to reflect updated data
+      if (this.isLiveConnected && typeof this.refreshTickets === "function") {
+        this.refreshTickets();
       }
 
       this.closeManageModal();
@@ -675,26 +728,41 @@ const AdminDashboard = {
       this.gmailStatus = data;
 
       if (data.isConnected) {
+        const isSmtp = data.method === 'smtp' || data.provider === 'gmail_smtp';
         badge.className = "admin-dispatch-badge badge-connected";
-        badge.textContent = "🟢 Gmail Connected";
+        badge.textContent = isSmtp ? "🟢 Gmail SMTP Active" : "🟢 Gmail Connected";
 
         if (emailEl) emailEl.textContent = data.connectedEmail || "wayvora.admin@gmail.com";
         if (emailCheck) emailCheck.style.display = "inline";
-        if (scopeEl) scopeEl.textContent = data.scope || "https://www.googleapis.com/auth/gmail.send";
-        if (channelEl) channelEl.textContent = "Gmail REST API (Active Primary) • Resend Sandbox (Fallback)";
+        if (scopeEl) scopeEl.textContent = data.scope || (isSmtp ? "smtp.gmail.com:465 (SSL)" : "https://www.googleapis.com/auth/gmail.send");
+        if (channelEl) channelEl.textContent = data.channel || (isSmtp ? "Gmail SMTP (Nodemailer) • wayvora.admin@gmail.com" : "Gmail REST API (Active Primary) • Resend Sandbox (Fallback)");
 
-        detail.innerHTML = `<span style="color: #4ade80; font-weight: 700;">✓ Active &amp; Ready:</span> Official customer support replies to traveler inquiries will be dispatched directly from <strong>${this.escapeHtml(data.connectedEmail || 'wayvora.admin@gmail.com')}</strong> via the Google Cloud Gmail API.`;
+        if (isSmtp) {
+          detail.innerHTML = `<span style="color: #4ade80; font-weight: 700;">✓ Active &amp; Ready:</span> Official customer support replies to traveler inquiries will be dispatched directly from <strong>${this.escapeHtml(data.connectedEmail || 'wayvora.admin@gmail.com')}</strong> via Gmail SMTP (Nodemailer).`;
 
-        actions.innerHTML = `
-          <button type="button" class="btn-dispatch-test" id="btn-gmail-test" title="Send a verification test email to ${this.escapeHtml(data.connectedEmail || 'wayvora.admin@gmail.com')}">
-            ✉️ Send Test Email
-          </button>
-          <button type="button" class="btn-dispatch-disconnect" id="btn-gmail-disconnect" title="Disconnect Gmail integration and revert support replies to Resend">
-            Disconnect Gmail
-          </button>
-        `;
-        document.getElementById("btn-gmail-test")?.addEventListener("click", () => this.testGmailConnection());
-        document.getElementById("btn-gmail-disconnect")?.addEventListener("click", () => this.disconnectGmail());
+          actions.innerHTML = `
+            <button type="button" class="btn-dispatch-test" id="btn-gmail-test" title="Send a verification test email via Gmail SMTP to ${this.escapeHtml(data.connectedEmail || 'wayvora.admin@gmail.com')}">
+              ✉️ Send Test Email
+            </button>
+            <div style="font-size: 11px; color: #94a3b8; text-align: center; margin-top: 6px;">
+              Configured via GMAIL_APP_PASSWORD
+            </div>
+          `;
+          document.getElementById("btn-gmail-test")?.addEventListener("click", () => this.testGmailConnection());
+        } else {
+          detail.innerHTML = `<span style="color: #4ade80; font-weight: 700;">✓ Active &amp; Ready:</span> Official customer support replies to traveler inquiries will be dispatched directly from <strong>${this.escapeHtml(data.connectedEmail || 'wayvora.admin@gmail.com')}</strong> via the Google Cloud Gmail API.`;
+
+          actions.innerHTML = `
+            <button type="button" class="btn-dispatch-test" id="btn-gmail-test" title="Send a verification test email to ${this.escapeHtml(data.connectedEmail || 'wayvora.admin@gmail.com')}">
+              ✉️ Send Test Email
+            </button>
+            <button type="button" class="btn-dispatch-disconnect" id="btn-gmail-disconnect" title="Disconnect Gmail integration and revert support replies to Resend">
+              Disconnect Gmail
+            </button>
+          `;
+          document.getElementById("btn-gmail-test")?.addEventListener("click", () => this.testGmailConnection());
+          document.getElementById("btn-gmail-disconnect")?.addEventListener("click", () => this.disconnectGmail());
+        }
       } else if (data.isConfigured) {
         badge.className = "admin-dispatch-badge badge-warning";
         badge.textContent = "🟡 Authorization Required";
@@ -718,11 +786,11 @@ const AdminDashboard = {
         if (emailEl) emailEl.textContent = "Not Configured";
         if (emailCheck) emailCheck.style.display = "none";
 
-        detail.textContent = "GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET not configured in .env. (Support replies currently dispatch via Resend).";
+        detail.textContent = "GMAIL_APP_PASSWORD or GOOGLE_CLIENT_ID not configured in .env. (Support replies currently dispatch via Resend).";
 
         actions.innerHTML = `
-          <button type="button" class="btn-dispatch-connect" id="btn-gmail-connect" disabled style="opacity: 0.5; cursor: not-allowed;" title="Add GOOGLE_CLIENT_ID to .env">
-            Connect Admin Gmail
+          <button type="button" class="btn-dispatch-connect" id="btn-gmail-connect" disabled style="opacity: 0.5; cursor: not-allowed;" title="Add GMAIL_APP_PASSWORD or GOOGLE_CLIENT_ID to .env">
+            Configure Gmail Password
           </button>
         `;
       }
@@ -805,11 +873,13 @@ const AdminDashboard = {
   },
 
   /**
-   * Sends a verification test email via the Gmail REST API
+   * Sends a verification test email via Gmail SMTP or Gmail REST API
    */
   async testGmailConnection() {
     const testBtn = document.getElementById("btn-gmail-test");
     const banner = document.getElementById("admin-gmail-test-banner");
+    const isSmtp = this.gmailStatus && (this.gmailStatus.method === 'smtp' || this.gmailStatus.provider === 'gmail_smtp');
+    const channelName = isSmtp ? 'Gmail SMTP (Nodemailer)' : 'Gmail REST API';
 
     if (testBtn) {
       testBtn.disabled = true;
@@ -818,7 +888,7 @@ const AdminDashboard = {
     if (banner) {
       banner.style.display = "block";
       banner.className = "admin-test-feedback feedback-loading";
-      banner.innerHTML = "⏳ Dispatching verification test email via Gmail REST API to <strong>wayvora.admin@gmail.com</strong>...";
+      banner.innerHTML = `⏳ Dispatching verification test email via ${channelName} to <strong>wayvora.admin@gmail.com</strong>...`;
     }
 
     try {
@@ -837,24 +907,26 @@ const AdminDashboard = {
       if (data.success) {
         const msgId = data.messageId || "Dispatched";
         const recipient = data.recipient || "wayvora.admin@gmail.com";
+        const prov = data.provider === 'gmail_smtp' ? 'Gmail SMTP (Nodemailer)' : (data.provider === 'gmail' ? 'Gmail REST API' : 'Gmail');
         if (banner) {
           banner.className = "admin-test-feedback feedback-success";
-          banner.innerHTML = `<strong>✓ Verification Test Email Sent Successfully!</strong><br>Dispatched from <strong>${this.escapeHtml(recipient)}</strong> via Gmail REST API.<br><span style="font-size: 11.5px; opacity: 0.9;">Gmail Message ID: <code>${this.escapeHtml(msgId)}</code></span>`;
+          banner.innerHTML = `<strong>✓ Verification Test Email Sent Successfully!</strong><br>Dispatched from <strong>${this.escapeHtml(recipient)}</strong> via ${prov}.<br><span style="font-size: 11.5px; opacity: 0.9;">Message ID: <code>${this.escapeHtml(msgId)}</code></span>`;
         }
         if (window.UI && typeof window.UI.showToast === "function") {
-          window.UI.showToast(`Test email verified via Gmail API! Message ID: ${msgId}`, "success");
+          window.UI.showToast(`Test email verified via ${prov}! Message ID: ${msgId}`, "success");
         } else {
-          alert(`Test email verified via Gmail API! Message ID: ${msgId}`);
+          alert(`Test email verified via ${prov}! Message ID: ${msgId}`);
         }
       } else {
+        const prov = data.provider === 'gmail_smtp' ? 'Gmail SMTP' : 'Gmail';
         if (banner) {
           banner.className = "admin-test-feedback feedback-error";
-          banner.innerHTML = `<strong>✕ Gmail API Test Failed:</strong> ${this.escapeHtml(data.error || "Unknown error")}`;
+          banner.innerHTML = `<strong>✕ ${prov} Test Failed:</strong> ${this.escapeHtml(data.error || "Unknown error")}`;
         }
         if (window.UI && typeof window.UI.showToast === "function") {
-          window.UI.showToast(`Gmail API test failed: ${data.error || "Unknown error"}`, "error");
+          window.UI.showToast(`${prov} test failed: ${data.error || "Unknown error"}`, "error");
         } else {
-          alert(`Gmail API test failed: ${data.error || "Unknown error"}`);
+          alert(`${prov} test failed: ${data.error || "Unknown error"}`);
         }
       }
     } catch (err) {
