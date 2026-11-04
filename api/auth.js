@@ -45,7 +45,7 @@ async function handleAuthRequest(req, res) {
     }
   }
 
-  const cleanPath = (pathname || '').replace(/\/+$/, '').toLowerCase();
+  const cleanPath = (pathname || '').replace(/\.js$/, '').replace(/\/+$/, '').toLowerCase();
   const queryAction = (searchParams.get('action') || (req.query && req.query.action) || (req.body && req.body.action) || '').toLowerCase();
 
   try {

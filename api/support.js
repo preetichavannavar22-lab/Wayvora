@@ -63,7 +63,7 @@ async function handleSupportRequest(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const pathname = (req.url || '').split('?')[0];
+    const pathname = (req.url || '').split('?')[0].replace(/\.js$/, '');
 
     // -------------------------------------------------------------------------
     // ACTION: RESEND WEBHOOK (email.delivered, email.bounced, email.complained)
