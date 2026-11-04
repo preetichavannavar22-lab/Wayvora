@@ -445,7 +445,7 @@ const AdminDashboard = {
         return;
       }
 
-      // 1. Submit through secure backend /api/support/reply
+      // 1. Submit through secure backend /api/support with action: "reply"
       const headers = {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${idToken}`
@@ -456,7 +456,7 @@ const AdminDashboard = {
       let responseData = null;
 
       try {
-        const response = await fetch("/api/support/reply", {
+        const response = await fetch("/api/support", {
           method: "POST",
           headers: headers,
           body: JSON.stringify({
