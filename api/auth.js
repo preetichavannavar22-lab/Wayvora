@@ -48,11 +48,16 @@ async function handleAuthRequest(req, res) {
   const cleanPath = (pathname || '').replace(/\.js$/, '').replace(/\/+$/, '').toLowerCase();
   const queryAction = (searchParams.get('action') || (req.query && req.query.action) || (req.body && req.body.action) || '').toLowerCase();
 
+  let vercelPath = '';
+  if (req.query && req.query.path) {
+    vercelPath = (Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path)).toLowerCase();
+  }
+
   try {
     // -------------------------------------------------------------------------
     // 1. GET /api/auth/google/url - Generate OAuth Authorization URL
     // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/url') || queryAction === 'url') && req.method === 'GET') {
+    if ((cleanPath.endsWith('/url') || vercelPath.endsWith('url') || queryAction === 'url') && req.method === 'GET') {
       const stateParam = searchParams.get('state') || (req.query && req.query.state) || '';
       try {
         const result = getAuthUrl(stateParam);
@@ -71,6 +76,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     const isCallback = (
       cleanPath.endsWith('/callback') ||
+      vercelPath.endsWith('callback') ||
       queryAction === 'callback' ||
       searchParams.has('code') ||
       searchParams.has('error') ||
@@ -102,7 +108,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     // 3. GET /api/auth/google/status - Connection Status (Admin Dashboard)
     // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/status') || cleanPath === '' || cleanPath === '/' || cleanPath === '/api/auth' || queryAction === 'status') && req.method === 'GET') {
+    if ((cleanPath.endsWith('/status') || vercelPath.endsWith('status') || cleanPath === '' || cleanPath === '/' || cleanPath === '/api/auth' || queryAction === 'status') && req.method === 'GET') {
       const status = await getConnectionStatus();
       if (status.isConnected) {
         return sendJsonResponse(res, 200, {
@@ -134,7 +140,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     // 4. POST /api/auth/google/disconnect - Disconnect Gmail Integration
     // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/disconnect') || queryAction === 'disconnect') && req.method === 'POST') {
+    if ((cleanPath.endsWith('/disconnect') || vercelPath.endsWith('disconnect') || queryAction === 'disconnect') && req.method === 'POST') {
       // Admin verification
       const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -152,7 +158,7 @@ async function handleAuthRequest(req, res) {
     // -------------------------------------------------------------------------
     // 5. POST /api/auth/google/test - Send Test Email via Gmail API (OAuth 2.0)
     // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/test') || queryAction === 'test') && req.method === 'POST') {
+    if ((cleanPath.endsWith('/test') || vercelPath.endsWith('test') || queryAction === 'test') && req.method === 'POST') {
       // Admin verification
       const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
       if (authHeader && authHeader.startsWith('Bearer ')) {

@@ -35,6 +35,16 @@ strayRootFiles.forEach(f => {
   }
 });
 
+// Clean up removed api subdirectories in GitHub repo
+const obsoleteApiDirs = ['auth', 'support'];
+obsoleteApiDirs.forEach(sub => {
+  const target = path.join(destDir, 'api', sub);
+  if (fs.existsSync(target)) {
+    fs.rmSync(target, { recursive: true, force: true });
+    console.log('  Cleaned up removed api directory:', sub);
+  }
+});
+
 // 2. Directories to synchronize
 const syncDirs = ['api', 'css', 'js', 'images', 'public', 'scripts'];
 

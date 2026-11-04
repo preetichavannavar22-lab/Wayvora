@@ -65,15 +65,20 @@ async function handleSupportRequest(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const pathname = (req.url || '').split('?')[0].replace(/\.js$/, '');
 
+    let vercelPath = '';
+    if (req.query && req.query.path) {
+      vercelPath = (Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path)).toLowerCase();
+    }
+
     // -------------------------------------------------------------------------
     // ACTION: RESEND WEBHOOK (email.delivered, email.bounced, email.complained)
     // -------------------------------------------------------------------------
-    const isWebhook = pathname.endsWith('/webhook') || (body.type && typeof body.type === 'string' && body.type.startsWith('email.'));
+    const isWebhook = pathname.endsWith('/webhook') || vercelPath.endsWith('webhook') || (body.type && typeof body.type === 'string' && body.type.startsWith('email.'));
     if (isWebhook) {
       return await handleResendWebhook(req, res, body);
     }
 
-    const isReply = pathname.endsWith('/reply') || body.action === 'reply';
+    const isReply = pathname.endsWith('/reply') || vercelPath.endsWith('reply') || body.action === 'reply';
 
     // -------------------------------------------------------------------------
     // ACTION: ADMIN REPLY TO TRAVELER
