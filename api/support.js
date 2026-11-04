@@ -228,36 +228,42 @@ async function handleCreateSupportRequest(req, res, body) {
     }
   }
 
-  // 3. Dispatch Emails via Resend
+  // 3. Dispatch Emails via Resend (guarded by kill-switch)
   const now = new Date().toISOString();
   let userEmailResult = { success: false, error: 'Not executed' };
   let adminEmailResult = { success: false, error: 'Not executed' };
 
-  try {
-    userEmailResult = await sendCustomerAcknowledgement({
-      ticketId,
-      name,
-      email,
-      category,
-      message,
-      createdAt: now
-    });
-  } catch (uErr) {
-    userEmailResult = { success: false, error: uErr.message };
-  }
+  if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+    console.warn('[SupportAPI] KILL-SWITCH ACTIVE: Inquiry confirmation emails suppressed.');
+    userEmailResult = { success: false, error: 'Outgoing emails disabled via server kill switch.', killSwitchActive: true };
+    adminEmailResult = { success: false, error: 'Outgoing emails disabled via server kill switch.', killSwitchActive: true };
+  } else {
+    try {
+      userEmailResult = await sendCustomerAcknowledgement({
+        ticketId,
+        name,
+        email,
+        category,
+        message,
+        createdAt: now
+      });
+    } catch (uErr) {
+      userEmailResult = { success: false, error: uErr.message };
+    }
 
-  try {
-    adminEmailResult = await sendAdminNotification({
-      ticketId,
-      name,
-      email,
-      category,
-      message,
-      userId,
-      createdAt: now
-    });
-  } catch (aErr) {
-    adminEmailResult = { success: false, error: aErr.message };
+    try {
+      adminEmailResult = await sendAdminNotification({
+        ticketId,
+        name,
+        email,
+        category,
+        message,
+        userId,
+        createdAt: now
+      });
+    } catch (aErr) {
+      adminEmailResult = { success: false, error: aErr.message };
+    }
   }
 
   // 4. Update Firestore with email delivery audit status
@@ -324,7 +330,7 @@ async function handleCreateSupportRequest(req, res, body) {
  * Handles Administrator responses to tickets
  */
 async function handleAdminReply(req, res, body) {
-  const { ticketId, adminReply, status = 'in_progress', provider: requestedProvider } = body;
+  const { ticketId, adminReply = '', status = 'in_progress', provider: requestedProvider, idempotencyKey } = body;
 
   // 1. Strict Administrator Authentication Verification
   const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
@@ -353,66 +359,63 @@ async function handleAdminReply(req, res, body) {
     return;
   }
 
-  // 2. Validate required inputs
-  if (!ticketId || !adminReply || !adminReply.trim()) {
-    const errRes = { success: false, error: 'ticketId and adminReply are required.' };
+  // 2. Validate ticket ID is provided
+  if (!ticketId || typeof ticketId !== 'string' || !ticketId.trim()) {
+    const errRes = { success: false, error: 'ticketId is required.' };
     if (typeof res.status === 'function') return res.status(400).json(errRes);
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(errRes));
     return;
   }
 
-  // 3. Fetch ticket to get traveler details
+  const cleanTicketId = ticketId.trim();
+
+  // 3. STRICT FIRESTORE LOOKUP: Fetch ticket from database using exact ticket ID
+  // NEVER use cached, sample, or fallback ticket details
   let ticket = null;
   try {
-    ticket = await getSupportTicket(ticketId);
+    ticket = await getSupportTicket(cleanTicketId);
   } catch (err) {
-    console.warn('[SupportAPI] Could not fetch ticket before reply:', err.message);
+    console.error(`[SupportAPI] Error fetching ticket #${cleanTicketId}:`, err.message);
   }
 
-  if (!ticket && !body.travelerEmail) {
-    const errRes = { success: false, error: `Ticket #${ticketId} not found in database.` };
+  if (!ticket) {
+    const errRes = {
+      success: false,
+      error: `Ticket #${cleanTicketId} not found in database. Outgoing replies require an authentic existing ticket.`
+    };
     if (typeof res.status === 'function') return res.status(404).json(errRes);
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(errRes));
     return;
   }
 
-  // 4. Resolve traveler's registered email address from Firebase Auth
-  let registeredEmail = null;
-  let targetUserId = (ticket && ticket.userId) || body.userId || null;
+  // 4. STRICT TICKET OWNERSHIP VERIFICATION:
+  // Recipient email MUST be resolved from Firebase Authentication for the ticket owner
+  let userRecord = null;
+  const ticketUserId = ticket.userId;
 
-  // 4a. If targetUserId is available, fetch user record from Firebase Auth
-  if (targetUserId) {
+  if (ticketUserId) {
     try {
-      const userRecord = await getUserAuthRecord(targetUserId);
-      if (userRecord && userRecord.email) {
-        registeredEmail = userRecord.email.trim().toLowerCase();
-      }
+      userRecord = await getUserAuthRecord(ticketUserId);
     } catch (e) {
-      console.warn('[SupportAPI] Auth lookup by UID error:', e.message);
+      console.warn(`[SupportAPI] Ticket owner lookup by UID (${ticketUserId}) failed:`, e.message);
     }
   }
 
-  // 4b. If still no registeredEmail, look up Firebase Auth by ticket or body email
-  const candidateEmail = (body.travelerEmail || (ticket && (ticket.registeredEmail || ticket.email)) || '').trim().toLowerCase();
-  if (!registeredEmail && candidateEmail) {
+  if (!userRecord && (ticket.registeredEmail || ticket.email)) {
+    const candidate = (ticket.registeredEmail || ticket.email).trim().toLowerCase();
     try {
-      const userRecord = await getUserAuthRecordByEmail(candidateEmail);
-      if (userRecord && userRecord.email) {
-        registeredEmail = userRecord.email.trim().toLowerCase();
-        if (!targetUserId) targetUserId = userRecord.uid;
-      }
+      userRecord = await getUserAuthRecordByEmail(candidate);
     } catch (e) {
-      // Non-fatal if guest
+      console.warn(`[SupportAPI] Ticket owner lookup by email (${candidate}) failed:`, e.message);
     }
   }
 
-  // 4c. STRICT REQUIREMENT: Recipient must belong to an existing registered Firebase Authentication account
-  if (!registeredEmail) {
+  if (!userRecord || !userRecord.email) {
     const errRes = {
       success: false,
-      error: 'Cannot send reply: The recipient does not have a registered WAYVORA account in Firebase Authentication. Replies are strictly restricted to registered users.'
+      error: `Cannot send reply: The owner of ticket #${cleanTicketId} does not have a verified account in Firebase Authentication. Replies are strictly restricted to registered users.`
     };
     if (typeof res.status === 'function') return res.status(400).json(errRes);
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -420,81 +423,163 @@ async function handleAdminReply(req, res, body) {
     return;
   }
 
-  // Retrieve recipient email strictly from Firebase Authentication
-  const travelerEmail = registeredEmail;
-  const travelerName = (ticket && ticket.name) || body.travelerName || 'Traveler';
-  const category = (ticket && ticket.category) || body.category || 'General Support';
-  const originalMessage = (ticket && ticket.message) || body.originalMessage || '';
+  // Recipient email is strictly retrieved from the verified Firebase Auth account
+  const travelerEmail = userRecord.email.trim().toLowerCase();
+  const targetUserId = userRecord.uid;
 
-  // 5. Dispatch official reply email to traveler via Gmail API (Google OAuth 2.0)
-  // Sender email: wayvora.admin@gmail.com
+  // Ensure inquiry details belong to the SAME Firestore ticket (never accept client overrides)
+  const travelerName = ticket.name || userRecord.displayName || 'Traveler';
+  const category = ticket.category || 'General Support';
+  const originalMessage = ticket.message || '';
+
+  // 5. STATUS-ONLY UPDATE CHECK:
+  // If no adminReply is provided, simply update ticket status without sending any email
+  const trimmedReply = (adminReply || '').trim();
+  if (!trimmedReply) {
+    try {
+      await updateSupportTicket(cleanTicketId, {
+        status: status,
+        updatedAt: new Date().toISOString()
+      });
+      const statusRes = {
+        success: true,
+        ticketId: cleanTicketId,
+        status: status,
+        emailSent: false,
+        message: `Ticket #${cleanTicketId.slice(0, 8)} status updated to ${status}. No email dispatched because no new reply text was entered.`
+      };
+      if (typeof res.status === 'function') return res.status(200).json(statusRes);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(statusRes));
+      return;
+    } catch (stErr) {
+      const errRes = { success: false, error: 'Failed to update ticket status: ' + stErr.message };
+      if (typeof res.status === 'function') return res.status(500).json(errRes);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(errRes));
+      return;
+    }
+  }
+
+  // 6. SERVER-SIDE DUPLICATE-SEND PROTECTION & IDEMPOTENCY:
+  // Check if this identical reply has already been delivered for this ticket
+  const isDuplicateReply = (
+    ticket.adminReply &&
+    ticket.adminReply.trim().toLowerCase() === trimmedReply.toLowerCase() &&
+    ticket.replyEmailStatus &&
+    ticket.replyEmailStatus.sent === true
+  ) || (
+    Array.isArray(ticket.replyHistory) &&
+    ticket.replyHistory.some(r =>
+      (r.reply || '').trim().toLowerCase() === trimmedReply.toLowerCase() &&
+      r.emailSent === true
+    )
+  ) || (
+    idempotencyKey &&
+    ticket.lastIdempotencyKey === idempotencyKey
+  );
+
+  if (isDuplicateReply) {
+    console.log(`[SupportAPI] Duplicate reply detected for ticket #${cleanTicketId}. Suppressing duplicate email dispatch.`);
+    if (status && status !== ticket.status) {
+      await updateSupportTicket(cleanTicketId, { status: status, updatedAt: new Date().toISOString() });
+    }
+    const dupRes = {
+      success: true,
+      ticketId: cleanTicketId,
+      status: status || ticket.status,
+      emailSent: false,
+      duplicateBlocked: true,
+      message: `Ticket #${cleanTicketId.slice(0, 8)} status updated. Identical reply was already emailed previously — duplicate email suppressed.`,
+      emailDelivery: {
+        sent: false,
+        skipped: true,
+        reason: 'Duplicate reply: identical message was already delivered to ' + travelerEmail
+      }
+    };
+    if (typeof res.status === 'function') return res.status(200).json(dupRes);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(dupRes));
+    return;
+  }
+
+  // 7. SERVER-SIDE KILL SWITCH FOR SUPPORT REPLIES:
+  // When active, all outgoing support-reply emails are blocked immediately.
+  const isKillSwitchActive = process.env.SUPPORT_REPLY_KILL_SWITCH === 'true';
   const now = new Date().toISOString();
   let emailResult = { success: false, error: 'Not executed' };
   let providerUsed = 'none';
 
-  const gmailStatus = await getGmailStatus();
-  const smtpConfig = getSmtpConfig();
+  if (isKillSwitchActive) {
+    console.warn(`[SupportAPI] KILL-SWITCH ACTIVE: Outgoing email for ticket #${cleanTicketId} to ${travelerEmail} was blocked.`);
+    emailResult = {
+      success: false,
+      error: 'Outgoing support emails are temporarily disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+      killSwitchActive: true
+    };
+  } else {
+    // 8. Dispatch official reply email to verified traveler via Gmail API
+    const gmailStatus = await getGmailStatus();
+    const smtpConfig = getSmtpConfig();
 
-  try {
-    // 5a. Primary & Required: Gmail API via Google OAuth 2.0 (Sender: wayvora.admin@gmail.com)
-    if (requestedProvider === 'gmail' || (gmailStatus.isConnected && requestedProvider !== 'resend' && requestedProvider !== 'gmail_smtp')) {
-      console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail API (from ${gmailStatus.connectedEmail || 'wayvora.admin@gmail.com'})...`);
-      emailResult = await sendAdminReplyWithGmail({
-        ticketId,
-        travelerName,
-        travelerEmail,
-        adminReply: adminReply.trim(),
-        originalMessage,
-        category,
-        status
-      });
-      if (emailResult.success) {
-        providerUsed = 'gmail';
+    try {
+      if (requestedProvider === 'gmail' || (gmailStatus.isConnected && requestedProvider !== 'resend' && requestedProvider !== 'gmail_smtp')) {
+        console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail API (from ${gmailStatus.connectedEmail || 'wayvora.admin@gmail.com'})...`);
+        emailResult = await sendAdminReplyWithGmail({
+          ticketId: cleanTicketId,
+          travelerName,
+          travelerEmail,
+          adminReply: trimmedReply,
+          originalMessage,
+          category,
+          status
+        });
+        if (emailResult.success) {
+          providerUsed = 'gmail';
+        }
+      } else if (requestedProvider === 'gmail_smtp' || (smtpConfig.isConfigured && requestedProvider !== 'resend' && !gmailStatus.isConnected)) {
+        console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail SMTP (from ${smtpConfig.user})...`);
+        emailResult = await sendAdminReplyWithSmtp({
+          ticketId: cleanTicketId,
+          travelerName,
+          travelerEmail,
+          adminReply: trimmedReply,
+          originalMessage,
+          category,
+          status
+        });
+        if (emailResult.success) {
+          providerUsed = 'gmail_smtp';
+        }
+      } else if (requestedProvider === 'resend' || (!gmailStatus.isConnected && !smtpConfig.isConfigured)) {
+        console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Resend API...`);
+        emailResult = await sendAdminReplyToCustomer({
+          ticketId: cleanTicketId,
+          travelerName,
+          travelerEmail,
+          adminReply: trimmedReply,
+          originalMessage,
+          category,
+          status
+        });
+        if (emailResult.success) {
+          providerUsed = 'resend';
+        }
+      } else {
+        emailResult = {
+          success: false,
+          error: 'Gmail API is not connected. Please authorize Gmail in the Admin Dashboard or configure GOOGLE_REFRESH_TOKEN.'
+        };
       }
-    } else if (requestedProvider === 'gmail_smtp' || (smtpConfig.isConfigured && requestedProvider !== 'resend' && !gmailStatus.isConnected)) {
-      // Alternate fallback to Gmail SMTP if explicitly requested or if OAuth is unconfigured
-      console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Gmail SMTP (from ${smtpConfig.user})...`);
-      emailResult = await sendAdminReplyWithSmtp({
-        ticketId,
-        travelerName,
-        travelerEmail,
-        adminReply: adminReply.trim(),
-        originalMessage,
-        category,
-        status
-      });
-      if (emailResult.success) {
-        providerUsed = 'gmail_smtp';
-      }
-    } else if (requestedProvider === 'resend' || (!gmailStatus.isConnected && !smtpConfig.isConfigured)) {
-      // Fallback to Resend API when Gmail is unconfigured or explicitly requested
-      console.log(`[SupportAPI] Dispatching admin reply to ${travelerEmail} via Resend API...`);
-      emailResult = await sendAdminReplyToCustomer({
-        ticketId,
-        travelerName,
-        travelerEmail,
-        adminReply: adminReply.trim(),
-        originalMessage,
-        category,
-        status
-      });
-      if (emailResult.success) {
-        providerUsed = 'resend';
-      }
-    } else {
-      emailResult = {
-        success: false,
-        error: 'Gmail API is not connected. Please authorize Gmail in the Admin Dashboard or configure GOOGLE_REFRESH_TOKEN.'
-      };
+    } catch (eErr) {
+      console.error('[SupportAPI] Exception during email dispatch:', eErr);
+      emailResult = { success: false, error: eErr.message };
     }
-  } catch (eErr) {
-    console.error('[SupportAPI] Exception during email dispatch:', eErr);
-    emailResult = { success: false, error: eErr.message };
   }
 
-  // 6. Build audit entries
+  // 9. Build audit entries
   const replyEntry = {
-    reply: adminReply.trim(),
+    reply: trimmedReply,
     repliedAt: now,
     status: status,
     sentBy: verification.email || 'WAYVORA Administrator',
@@ -513,43 +598,47 @@ async function handleAdminReply(req, res, body) {
     sender: emailResult.sender || (providerUsed.includes('gmail') ? 'wayvora.admin@gmail.com' : 'WAYVORA Support'),
     status: emailResult.success ? 'sent' : 'failed',
     error: emailResult.error || null,
+    killSwitchActive: !!emailResult.killSwitchActive,
     isSandboxRestriction: !!emailResult.isSandboxRestriction,
     sentAt: now
   };
 
-  // 7. Update ticket in Firestore (saving reply, status, associating userId, and preserving replyHistory)
+  // 10. Update ticket in Firestore (saving reply, status, associating userId, preserving replyHistory and recording idempotency)
   let firestoreUpdated = false;
   try {
     const { FieldValue } = require('firebase-admin/firestore');
     const updatePayload = {
-      adminReply: adminReply.trim(),
+      adminReply: trimmedReply,
       status: status,
       repliedAt: now,
       replyHistory: FieldValue.arrayUnion(replyEntry),
       replyEmailStatus: replyEmailStatus
     };
 
+    if (idempotencyKey) {
+      updatePayload.lastIdempotencyKey = idempotencyKey;
+    }
     if (targetUserId) {
       updatePayload.userId = targetUserId;
     }
-    if (registeredEmail) {
-      updatePayload.registeredEmail = registeredEmail;
+    if (travelerEmail) {
+      updatePayload.registeredEmail = travelerEmail;
     }
 
-    await updateSupportTicket(ticketId, updatePayload);
+    await updateSupportTicket(cleanTicketId, updatePayload);
     firestoreUpdated = true;
   } catch (fsErr) {
     console.warn('[SupportAPI] Firestore reply update error:', fsErr.message);
   }
 
-  // 8. Return comprehensive, accurate response (Never claim success if email delivery failed)
+  // 11. Return comprehensive, accurate response
   const providerLabel = providerUsed === 'gmail_smtp'
     ? 'Gmail SMTP (wayvora.admin@gmail.com)'
     : (providerUsed === 'gmail' ? 'Gmail API' : 'Resend');
 
   const replyResponse = {
-    success: true, // Ticket was recorded in Firestore
-    ticketId,
+    success: true,
+    ticketId: cleanTicketId,
     recipient: travelerEmail,
     firestoreUpdated,
     emailSent: !!emailResult.success,
@@ -557,7 +646,9 @@ async function handleAdminReply(req, res, body) {
     emailDelivery: replyEmailStatus,
     message: emailResult.success
       ? `Official response recorded and email successfully delivered to ${travelerEmail} via ${providerLabel}${emailResult.id ? ' (Message ID: ' + emailResult.id + ')' : ''}.`
-      : `Official response recorded in database, but email delivery to ${travelerEmail} could not complete: ${emailResult.error || 'Delivery failed'}`
+      : (emailResult.killSwitchActive
+          ? `Official response recorded in database. (Outgoing email blocked: kill switch is active).`
+          : `Official response recorded in database, but email delivery to ${travelerEmail} could not complete: ${emailResult.error || 'Delivery failed'}`)
   };
 
   if (typeof res.status === 'function') {

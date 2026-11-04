@@ -336,7 +336,24 @@ const AdminDashboard = {
     document.getElementById("manage-ticket-category").textContent = ticket.category || "General Inquiry";
     document.getElementById("manage-ticket-message").textContent = ticket.message || "";
     document.getElementById("manage-ticket-status").value = (ticket.status || "open").toLowerCase();
-    document.getElementById("manage-ticket-reply").value = ticket.adminReply || "";
+    
+    // Always start with an empty reply input so old replies are never accidentally re-sent
+    const replyInput = document.getElementById("manage-ticket-reply");
+    if (replyInput) {
+      replyInput.value = "";
+      replyInput.oninput = () => {
+        const hasText = replyInput.value.trim().length > 0;
+        const btn = document.getElementById("manage-ticket-save-btn");
+        if (btn) {
+          btn.textContent = hasText ? "✉️ Send Official Reply & Save Status" : "💾 Update Status Only";
+        }
+      };
+    }
+
+    const saveBtn = document.getElementById("manage-ticket-save-btn");
+    if (saveBtn) {
+      saveBtn.textContent = "💾 Update Status Only";
+    }
 
     const isAboutInquiry = ticket.source === "about_inquiry" || ticket.category === "planning" || ticket.category === "feature";
     const originEl = document.getElementById("manage-ticket-origin");
@@ -418,7 +435,7 @@ const AdminDashboard = {
 
     if (saveBtn) {
       saveBtn.disabled = true;
-      saveBtn.textContent = adminReply ? "Saving & Sending Email..." : "Updating Ticket...";
+      saveBtn.textContent = adminReply ? "Saving & Sending Email..." : "Updating Status...";
     }
 
     try {
@@ -440,12 +457,13 @@ const AdminDashboard = {
         }
         if (saveBtn) {
           saveBtn.disabled = false;
-          saveBtn.textContent = "Save Changes & Send Reply";
+          saveBtn.textContent = adminReply ? "✉️ Send Official Reply & Save Status" : "💾 Update Status Only";
         }
         return;
       }
 
       // 1. Submit through secure backend /api/support with action: "reply"
+      // Recipient details and ticket context are strictly resolved by ticket ID on the backend
       const headers = {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${idToken}`
@@ -462,13 +480,9 @@ const AdminDashboard = {
           body: JSON.stringify({
             action: "reply",
             ticketId: this.activeTicket.id,
-            userId: this.activeTicket.userId || null,
             adminReply: adminReply,
             status: status,
-            travelerEmail: this.activeTicket.registeredEmail || this.activeTicket.email,
-            travelerName: this.activeTicket.name,
-            category: this.activeTicket.category,
-            originalMessage: this.activeTicket.message
+            idempotencyKey: adminReply ? (`reply-${this.activeTicket.id}-${Date.now()}`) : undefined
           })
         });
 
@@ -481,7 +495,7 @@ const AdminDashboard = {
           alert(errMsg);
           if (saveBtn) {
             saveBtn.disabled = false;
-            saveBtn.textContent = "Save Changes & Send Reply";
+            saveBtn.textContent = adminReply ? "✉️ Send Official Reply & Save Status" : "💾 Update Status Only";
           }
           return;
         }
@@ -502,19 +516,21 @@ const AdminDashboard = {
         alert("Failed to submit reply: " + fetchErr.message);
         if (saveBtn) {
           saveBtn.disabled = false;
-          saveBtn.textContent = "Save Changes & Send Reply";
+          saveBtn.textContent = adminReply ? "✉️ Send Official Reply & Save Status" : "💾 Update Status Only";
         }
         return;
       }
 
       // 2. Show accurate toast notifications (Never claim "Message sent" if email delivery failed)
       if (window.UI && typeof window.UI.showToast === "function") {
-        if (emailDelivered) {
-          const recEmail = (responseData && responseData.emailDelivery && responseData.emailDelivery.recipient) || this.activeTicket.registeredEmail || this.activeTicket.email;
-          const provider = (responseData && responseData.provider) || (responseData && responseData.emailDelivery && responseData.emailDelivery.provider) || 'gmail_smtp';
-          const providerName = provider === 'gmail_smtp'
-            ? 'Gmail SMTP'
-            : (provider === 'gmail' ? 'Gmail API' : 'Resend');
+        if (responseData && responseData.duplicateBlocked) {
+          window.UI.showToast(`Ticket status updated. Duplicate reply suppressed (identical message was already sent).`, "info");
+        } else if (responseData && responseData.emailDelivery && responseData.emailDelivery.killSwitchActive) {
+          window.UI.showToast(`Ticket updated in database. Outgoing email blocked: server kill switch is active.`, "warning");
+        } else if (emailDelivered) {
+          const recEmail = (responseData && responseData.recipient) || (responseData && responseData.emailDelivery && responseData.emailDelivery.recipient) || this.activeTicket.registeredEmail || this.activeTicket.email;
+          const provider = (responseData && responseData.provider) || 'gmail';
+          const providerName = provider === 'gmail' ? 'Gmail API' : (provider === 'gmail_smtp' ? 'Gmail SMTP' : 'Resend');
           const idVal = (responseData && responseData.emailDelivery && responseData.emailDelivery.id) || '';
           const idText = idVal ? ` (ID: ${idVal.slice(0, 10)}...)` : '';
           window.UI.showToast(`Ticket updated & official reply delivered to ${recEmail} via ${providerName}${idText}!`, "success");
@@ -524,8 +540,9 @@ const AdminDashboard = {
         } else if (adminReply) {
           window.UI.showToast("Ticket updated in database. (Email delivery could not be verified)", "info");
         } else {
-          window.UI.showToast("Support ticket status updated.", "success");
+          window.UI.showToast(`Support ticket status updated to ${status}.`, "success");
         }
+      }
       }
 
       // 3. Refresh tickets list to reflect updated data
@@ -540,7 +557,7 @@ const AdminDashboard = {
     } finally {
       if (saveBtn) {
         saveBtn.disabled = false;
-        saveBtn.textContent = "Save Changes & Send Reply";
+        saveBtn.textContent = "💾 Update Status Only";
       }
     }
   },
@@ -1195,8 +1212,8 @@ const AdminDashboard = {
               <label for="manage-ticket-reply" class="text-xs font-bold block" style="margin: 0;">Official Administrator Response</label>
               <span id="manage-ticket-channel-indicator" style="font-size: 11px; color: #38bdf8; font-weight: 600;"></span>
             </div>
-            <textarea id="manage-ticket-reply" class="form-control" rows="4" placeholder="Write an official response visible to this traveler in their account..."></textarea>
-            <span class="text-xs text-muted mt-1 block">This response will be securely delivered to the customer's portal and dispatched by email.</span>
+            <textarea id="manage-ticket-reply" class="form-control" rows="4" placeholder="Type a new official response to the traveler, or leave blank to update status only..."></textarea>
+            <span class="text-xs text-muted mt-1 block">Leave empty to update ticket status without sending an email. If text is entered, it will be emailed to the verified traveler.</span>
           </div>
         </div>
         <div class="admin-submodal-footer">
@@ -1207,7 +1224,7 @@ const AdminDashboard = {
           </div>
           <div class="admin-submodal-footer-right">
             <button type="button" class="btn btn-outline btn-sm" id="manage-ticket-cancel-btn">Cancel</button>
-            <button type="button" class="btn btn-primary btn-sm" id="manage-ticket-save-btn">Save Changes &amp; Send Reply</button>
+            <button type="button" class="btn btn-primary btn-sm" id="manage-ticket-save-btn">💾 Update Status Only</button>
           </div>
         </div>
       </div>

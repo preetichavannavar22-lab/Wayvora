@@ -268,6 +268,15 @@ async function sendAdminReplyWithSmtp({
   category = 'General Support',
   status = 'in_progress'
 }) {
+  if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+    console.warn('[GmailSmtpService] KILL-SWITCH ACTIVE: sendAdminReplyWithSmtp suppressed.');
+    return {
+      success: false,
+      error: 'Outgoing support replies are disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+      killSwitchActive: true
+    };
+  }
+
   const config = getConfig();
   const safeName = escapeHtml(travelerName || 'Traveler');
   const safeCategory = escapeHtml(category || 'General Support');

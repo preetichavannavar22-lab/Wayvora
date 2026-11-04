@@ -477,6 +477,15 @@ To reply to this traveler directly, simply hit Reply in your email client (Reply
  * Dispatched to the traveler when the administrator answers from the Admin Dashboard.
  */
 async function sendAdminReplyToCustomer({ ticketId, travelerName, travelerEmail, adminReply, originalMessage, category, status = 'in_progress' }) {
+  if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+    console.warn('[ResendService] KILL-SWITCH ACTIVE: sendAdminReplyToCustomer suppressed.');
+    return {
+      success: false,
+      error: 'Outgoing support replies are disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+      killSwitchActive: true
+    };
+  }
+
   const config = getConfig();
   const safeName = escapeHtml(travelerName || 'Traveler');
   const safeCategory = escapeHtml(category || 'General Support');

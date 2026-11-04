@@ -164,6 +164,15 @@ async function handleAuthRequest(req, res) {
       }
 
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+
+      if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
+        return sendJsonResponse(res, 200, {
+          success: false,
+          error: 'Outgoing emails are temporarily disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
+          killSwitchActive: true
+        });
+      }
+
       const targetEmail = body.to || 'wayvora.admin@gmail.com';
 
       const config = getConfig();
