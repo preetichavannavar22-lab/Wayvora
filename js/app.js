@@ -648,7 +648,14 @@ const App = {
 
   handleRoute(overrideHash) {
     this.clearHomeSearch();
-    let hash = (overrideHash !== undefined && overrideHash !== null) ? overrideHash : (window.location.hash.replace("#", "") || "home");
+    let hash = (overrideHash !== undefined && overrideHash !== null) ? overrideHash : (window.location.hash.replace("#", "") || "");
+    if (!hash && typeof window !== "undefined" && window.location && window.location.pathname) {
+      const cleanPath = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+      if (cleanPath === "admin" || cleanPath === "admin-dashboard") {
+        hash = "admin";
+      }
+    }
+    if (!hash) hash = "home";
     let scrollToTarget = null;
 
     let targetAboutTab = null;
@@ -696,11 +703,23 @@ const App = {
       }, 50);
     } else if (hash === "admin" || hash === "admin-dashboard") {
       hash = "home";
-      setTimeout(() => {
+      const triggerAdminOpen = () => {
         if (window.AdminDashboard && typeof window.AdminDashboard.open === "function") {
           window.AdminDashboard.open();
+          return true;
         }
-      }, 150);
+        return false;
+      };
+
+      if (!triggerAdminOpen()) {
+        let attempts = 0;
+        const retryTimer = setInterval(() => {
+          attempts++;
+          if (triggerAdminOpen() || attempts > 15) {
+            clearInterval(retryTimer);
+          }
+        }, 100);
+      }
     }
 
     const validViews = ["home", "explore", "planner", "favourites", "about", "india", "destination"];

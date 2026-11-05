@@ -672,9 +672,11 @@ const AuthService = {
     const openAdminHandler = (e) => {
       if (e) e.preventDefault();
       if (dropdown) dropdown.classList.remove("active");
-      if (window.App && App.closeMobileMenu) App.closeMobileMenu();
+      if (window.App && typeof App.closeMobileMenu === "function") App.closeMobileMenu();
       if (window.AdminDashboard && typeof window.AdminDashboard.open === "function") {
         window.AdminDashboard.open();
+      } else {
+        window.location.hash = "admin";
       }
     };
 

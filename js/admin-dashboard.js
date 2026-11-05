@@ -73,6 +73,9 @@ const AdminDashboard = {
       document.body.style.overflow = "hidden";
       const modalContent = modal.querySelector(".admin-modal-content");
       if (modalContent) modalContent.scrollTop = 0;
+      if (window.location.hash !== "#admin" && window.location.hash !== "#admin-dashboard") {
+        try { history.replaceState(null, document.title, "#admin"); } catch (e) {}
+      }
       this.subscribeToLiveTickets();
       this.checkGmailStatus();
     }
@@ -83,6 +86,9 @@ const AdminDashboard = {
     if (modal) {
       modal.classList.remove("active");
       document.body.style.overflow = "";
+    }
+    if (window.location.hash === "#admin" || window.location.hash === "#admin-dashboard") {
+      try { history.replaceState(null, document.title, window.location.pathname + window.location.search); } catch (e) {}
     }
     if (this.unsubscribeListener) {
       this.unsubscribeListener();
@@ -543,7 +549,6 @@ const AdminDashboard = {
           window.UI.showToast(`Support ticket status updated to ${status}.`, "success");
         }
       }
-      }
 
       // 3. Refresh tickets list to reflect updated data
       if (this.isLiveConnected && typeof this.refreshTickets === "function") {
@@ -593,6 +598,19 @@ const AdminDashboard = {
   },
 
   bindEvents() {
+    // Admin Portal Trigger Buttons (Desktop Nav, User Dropdown, Mobile Drawer)
+    const adminTriggerHandler = (e) => {
+      if (e) e.preventDefault();
+      const dropdown = document.getElementById("user-menu-dropdown");
+      if (dropdown) dropdown.classList.remove("active");
+      if (window.App && typeof App.closeMobileMenu === "function") App.closeMobileMenu();
+      this.open();
+    };
+
+    document.getElementById("nav-admin-dashboard-btn")?.addEventListener("click", adminTriggerHandler);
+    document.getElementById("user-menu-admin-item")?.addEventListener("click", adminTriggerHandler);
+    document.getElementById("mobile-admin-dashboard-btn")?.addEventListener("click", adminTriggerHandler);
+
     // Backdrop close
     document.addEventListener("click", (e) => {
       if (e.target.id === "admin-dashboard-modal") this.close();

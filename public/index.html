@@ -103,7 +103,7 @@
                 <span id="mobile-user-email">user@example.com</span>
               </div>
             </div>
-            <button class="btn btn-block btn-sm mt-2" id="mobile-admin-dashboard-btn" style="display: none; background: #0284c7; color: #fff; font-weight: 700;">
+            <button class="btn btn-block btn-sm mt-2" id="mobile-admin-dashboard-btn" style="display: none; background: #0284c7; color: #fff; font-weight: 700; cursor: pointer;" onclick="if(window.AdminDashboard&&typeof window.AdminDashboard.open==='function'){window.AdminDashboard.open();}else{window.location.hash='admin';}">
               🛡️ Developer Admin Dashboard
             </button>
             <button class="btn btn-outline-danger btn-block btn-sm mt-2" id="btn-user-logout-mobile">
@@ -142,7 +142,7 @@
         </div>
 
         <!-- Developer Admin Portal Quick-Action (Visible only to authenticated Admin) -->
-        <button type="button" class="btn btn-outline btn-sm" id="nav-admin-dashboard-btn" style="display: none; border-color: #38bdf8; color: #38bdf8; font-weight: 700; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; border-radius: 9999px;" title="Developer Admin Portal">
+        <button type="button" class="btn btn-outline btn-sm" id="nav-admin-dashboard-btn" style="display: none; border-color: #38bdf8; color: #38bdf8; font-weight: 700; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; border-radius: 9999px; cursor: pointer; pointer-events: auto; position: relative; z-index: 10;" title="Developer Admin Portal" onclick="if(window.AdminDashboard&&typeof window.AdminDashboard.open==='function'){window.AdminDashboard.open();}else{window.location.hash='admin';}">
           <span>🛡️</span> Admin Portal
         </button>
 
@@ -187,7 +187,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
                 <span>Saved Favourites</span>
               </a>
-              <button type="button" class="profile-dropdown-item text-primary" id="user-menu-admin-item" style="display: none;">
+              <button type="button" class="profile-dropdown-item text-primary" id="user-menu-admin-item" style="display: none; cursor: pointer;" onclick="if(window.AdminDashboard&&typeof window.AdminDashboard.open==='function'){window.AdminDashboard.open();}else{window.location.hash='admin';}">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                 <span>Developer Admin Portal</span>
               </button>
