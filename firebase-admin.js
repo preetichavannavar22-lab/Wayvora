@@ -1,0 +1,300 @@
+/**
+ * WAYVORA - Backend Firebase Admin SDK Helper
+ * 
+ * Provides centralized, secure server-side Firebase Admin & Firestore operations.
+ * Never exposed to frontend clients.
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+let adminApp = null;
+let firestoreDb = null;
+let authService = null;
+
+/**
+ * Automatically locates the Firebase Admin SDK service account key
+ */
+function findServiceAccountKey() {
+  const candidates = [
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    path.join(__dirname, '..', 'secrets', 'wayvora-96c3d-firebase-adminsdk-fbsvc-d05817b4b7.json'),
+    path.join(__dirname, '..', '..', 'secrets', 'wayvora-96c3d-firebase-adminsdk-fbsvc-d05817b4b7.json'),
+    path.join(process.cwd(), 'secrets', 'wayvora-96c3d-firebase-adminsdk-fbsvc-d05817b4b7.json'),
+    path.join(__dirname, '..', 'secrets', 'serviceAccountKey.json'),
+    path.join(__dirname, '..', '..', 'secrets', 'serviceAccountKey.json'),
+    path.join(process.cwd(), 'secrets', 'serviceAccountKey.json'),
+    path.join(__dirname, '..', 'serviceAccountKey.json')
+  ].filter(Boolean);
+
+  for (const cPath of candidates) {
+    if (fs.existsSync(cPath)) {
+      return cPath;
+    }
+  }
+
+  // Scan potential secrets directories for any adminsdk json file
+  const searchDirs = [
+    path.join(__dirname, '..', 'secrets'),
+    path.join(__dirname, '..', '..', 'secrets'),
+    path.join(process.cwd(), 'secrets')
+  ];
+
+  for (const secretsDir of searchDirs) {
+    if (fs.existsSync(secretsDir)) {
+      try {
+        const files = fs.readdirSync(secretsDir);
+        for (const file of files) {
+          if (file.endsWith('.json') && (file.includes('adminsdk') || file.includes('wayvora'))) {
+            return path.join(secretsDir, file);
+          }
+        }
+      } catch (e) {
+        // Ignore directory scan errors
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Initializes Firebase Admin SDK if not already initialized
+ */
+function initFirebaseAdmin() {
+  if (adminApp && firestoreDb) {
+    return { app: adminApp, db: firestoreDb, auth: authService };
+  }
+
+  try {
+    const { initializeApp, cert, getApps } = require('firebase-admin/app');
+    const { getFirestore } = require('firebase-admin/firestore');
+    const { getAuth } = require('firebase-admin/auth');
+
+    if (getApps().length > 0) {
+      adminApp = getApps()[0];
+    } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      // Support Vercel environment variable with raw service account JSON or base64 JSON
+      try {
+        let rawVal = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+        if (!rawVal.startsWith('{')) {
+          try {
+            rawVal = Buffer.from(rawVal, 'base64').toString('utf8');
+          } catch (b64Err) {
+            // Keep raw if base64 decode fails
+          }
+        }
+        const serviceAccount = JSON.parse(rawVal);
+        adminApp = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d'
+        });
+      } catch (parseErr) {
+        console.warn('Firebase Admin: Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable:', parseErr.message);
+      }
+    } else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+      // Support Vercel environment variables split into individual parameters
+      try {
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+        adminApp = initializeApp({
+          credential: cert({
+            projectId: process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d',
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: privateKey
+          }),
+          projectId: process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d'
+        });
+      } catch (envKeyErr) {
+        console.warn('Firebase Admin: Failed to initialize with individual env credentials:', envKeyErr.message);
+      }
+    }
+
+    if (!adminApp && getApps().length === 0) {
+      const keyPath = findServiceAccountKey();
+      if (keyPath) {
+        const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+        adminApp = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: serviceAccount.project_id || 'wayvora-96c3d'
+        });
+      } else if (process.env.FIREBASE_CONFIG || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        adminApp = initializeApp();
+      } else {
+        console.warn('Firebase Admin: No service account key found. Backend Firestore operations may be limited.');
+        return { app: null, db: null, auth: null };
+      }
+    }
+
+    firestoreDb = getFirestore(adminApp);
+    authService = getAuth(adminApp);
+    return { app: adminApp, db: firestoreDb, auth: authService };
+  } catch (err) {
+    console.error('Failed to initialize Firebase Admin SDK:', err.message);
+    return { app: null, db: null, auth: null };
+  }
+}
+
+/**
+ * Save a new support request in Firestore
+ * Collection: support_requests
+ */
+async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null, source = 'support_ticket' }) {
+  const { db } = initFirebaseAdmin();
+  if (!db) {
+    throw new Error('Firestore Database is not available on the server.');
+  }
+
+  const { FieldValue } = require('firebase-admin/firestore');
+
+  const ticketData = {
+    name: (name || '').trim(),
+    email: (email || '').trim().toLowerCase(),
+    registeredEmail: (registeredEmail || email || '').trim().toLowerCase(),
+    category: category || 'General Inquiry',
+    message: (message || '').trim(),
+    source: source || 'support_ticket',
+    status: 'open',
+    replyHistory: [],
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  if (userId) {
+    ticketData.userId = userId;
+  }
+
+  let docRef;
+  if (ticketId) {
+    docRef = db.collection('support_requests').doc(ticketId);
+    await docRef.set(ticketData, { merge: true });
+  } else {
+    docRef = await db.collection('support_requests').add(ticketData);
+  }
+
+  return {
+    id: docRef.id,
+    ...ticketData
+  };
+}
+
+/**
+ * Update support request details or email delivery status
+ */
+async function updateSupportTicket(ticketId, updates) {
+  const { db } = initFirebaseAdmin();
+  if (!db) {
+    throw new Error('Firestore Database is not available on the server.');
+  }
+
+  const { FieldValue } = require('firebase-admin/firestore');
+  const docRef = db.collection('support_requests').doc(ticketId);
+
+  const payload = {
+    ...updates,
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  await docRef.update(payload);
+  return true;
+}
+
+/**
+ * Retrieve a specific support ticket by ID
+ */
+async function getSupportTicket(ticketId) {
+  const { db } = initFirebaseAdmin();
+  if (!db) return null;
+
+  const doc = await db.collection('support_requests').doc(ticketId).get();
+  if (!doc.exists) return null;
+
+  return { id: doc.id, ...doc.data() };
+}
+
+/**
+ * Verifies a Firebase Auth ID Token and checks admin status
+ */
+async function verifyAdminAuthToken(idToken) {
+  if (!idToken || typeof idToken !== 'string') {
+    return { isValid: false, isAdmin: false, error: 'No ID token provided.' };
+  }
+
+  const { auth } = initFirebaseAdmin();
+  if (!auth) {
+    return { isValid: false, isAdmin: false, error: 'Firebase Auth is not initialized on the server.' };
+  }
+
+  try {
+    const decodedToken = await auth.verifyIdToken(idToken);
+    const emailLower = (decodedToken.email || '').toLowerCase().trim();
+    const isAdmin = (
+      decodedToken.admin === true ||
+      decodedToken.uid === 'MXMCpQFfM7Zyp865ljTXiasFB2M2' ||
+      emailLower === 'wayvora.admin@gmail.com'
+    );
+
+    return {
+      isValid: true,
+      isAdmin,
+      uid: decodedToken.uid,
+      email: decodedToken.email
+    };
+  } catch (err) {
+    return { isValid: false, isAdmin: false, error: err.message };
+  }
+}
+
+/**
+ * Retrieve user record from Firebase Authentication by UID
+ */
+async function getUserAuthRecord(uid) {
+  if (!uid) return null;
+  const { auth } = initFirebaseAdmin();
+  if (!auth) return null;
+
+  try {
+    const userRecord = await auth.getUser(uid);
+    return {
+      uid: userRecord.uid,
+      email: userRecord.email ? userRecord.email.toLowerCase().trim() : null,
+      displayName: userRecord.displayName,
+      emailVerified: userRecord.emailVerified
+    };
+  } catch (err) {
+    console.warn(`[FirebaseAdmin] Could not fetch user ${uid}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Retrieve user record from Firebase Authentication by registered email
+ */
+async function getUserAuthRecordByEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const { auth } = initFirebaseAdmin();
+  if (!auth) return null;
+
+  try {
+    const cleanEmail = email.toLowerCase().trim();
+    const userRecord = await auth.getUserByEmail(cleanEmail);
+    return {
+      uid: userRecord.uid,
+      email: userRecord.email ? userRecord.email.toLowerCase().trim() : null,
+      displayName: userRecord.displayName,
+      emailVerified: userRecord.emailVerified
+    };
+  } catch (err) {
+    // Non-fatal if user is a guest or not yet registered
+    return null;
+  }
+}
+
+module.exports = {
+  initFirebaseAdmin,
+  saveSupportTicket,
+  updateSupportTicket,
+  getSupportTicket,
+  verifyAdminAuthToken,
+  getUserAuthRecord,
+  getUserAuthRecordByEmail
+};
