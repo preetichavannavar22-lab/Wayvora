@@ -278,25 +278,70 @@ const App = {
         };
 
         try {
-          const authUser = (window.AuthService && typeof window.AuthService.getCurrentUser === "function")
-            ? window.AuthService.getCurrentUser()
-            : null;
-          const fbUser = window.firebaseAuth && window.firebaseAuth.currentUser;
-          const currentUser = fbUser || authUser;
-          const userId = currentUser ? currentUser.uid : null;
-          const registeredEmail = (currentUser && currentUser.email) ? currentUser.email.trim().toLowerCase() : null;
+          // 1. Verify user is registered & authenticated before submitting support request
+          const isAuthed = (window.AuthService && typeof window.AuthService.isAuthenticated === "function")
+            ? window.AuthService.isAuthenticated()
+            : !!(window.firebaseAuth && window.firebaseAuth.currentUser);
 
+          if (!isAuthed) {
+            const warningMsg = "Unauthorized. You must be registered and signed in to WAYVORA to submit an inquiry or support request.";
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast(warningMsg, "warning");
+            }
+            if (window.AuthService && typeof AuthService.requireAuth === "function") {
+              AuthService.requireAuth(() => {}, { label: "submit an inquiry" });
+            }
+            return;
+          }
+
+          // 2. Retrieve live Firebase ID Token for Authorization header
           let idToken = null;
-          if (currentUser && typeof currentUser.getIdToken === "function") {
+          if (window.AuthService && typeof window.AuthService.getIdToken === "function") {
             try {
-              idToken = await currentUser.getIdToken();
+              idToken = await window.AuthService.getIdToken();
             } catch (tErr) {
-              // Token retrieval non-fatal
+              console.warn("AuthService.getIdToken warning:", tErr);
             }
           }
 
-          const headers = { "Content-Type": "application/json" };
-          if (idToken) headers["Authorization"] = `Bearer ${idToken}`;
+          if (!idToken) {
+            const fbUser = (window.AuthService && typeof window.AuthService.getFirebaseUser === "function")
+              ? window.AuthService.getFirebaseUser()
+              : (window.firebaseAuth && window.firebaseAuth.currentUser);
+            if (fbUser && typeof fbUser.getIdToken === "function") {
+              try {
+                idToken = await fbUser.getIdToken();
+              } catch (tErr2) {
+                console.warn("fbUser.getIdToken warning:", tErr2);
+              }
+            }
+          }
+
+          if (!idToken) {
+            const warningMsg = "Unauthorized. You must be registered and signed in to WAYVORA to submit an inquiry or support request.";
+            if (window.UI && typeof window.UI.showToast === "function") {
+              window.UI.showToast(warningMsg, "warning");
+            }
+            if (window.AuthService && typeof AuthService.requireAuth === "function") {
+              AuthService.requireAuth(() => {}, { label: "submit an inquiry" });
+            }
+            return;
+          }
+
+          const authUser = (window.AuthService && typeof window.AuthService.getCurrentUser === "function")
+            ? window.AuthService.getCurrentUser()
+            : null;
+          const fbUser = (window.AuthService && typeof window.AuthService.getFirebaseUser === "function")
+            ? window.AuthService.getFirebaseUser()
+            : (window.firebaseAuth && window.firebaseAuth.currentUser);
+          const currentUser = authUser || fbUser;
+          const userId = currentUser ? currentUser.uid : null;
+          const registeredEmail = (currentUser && currentUser.email) ? currentUser.email.trim().toLowerCase() : (email ? email.trim().toLowerCase() : null);
+
+          const headers = {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${idToken}`
+          };
 
           // Dispatch securely to backend API (never exposes RESEND_API_KEY)
           const response = await fetch("/api/support", {

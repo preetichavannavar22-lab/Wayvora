@@ -11,6 +11,7 @@ const {
   updateSupportTicket,
   getSupportTicket,
   verifyAdminAuthToken,
+  verifyUserAuthToken,
   getUserAuthRecord,
   getUserAuthRecordByEmail
 } = require('./firebase-admin.js');
@@ -147,33 +148,14 @@ async function handleCreateSupportRequest(req, res, body) {
   const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
   let verifiedUid = null;
   let verifiedEmail = null;
+  let authToken = null;
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split('Bearer ')[1].trim();
-    const { auth } = require('./firebase-admin.js').initFirebaseAdmin();
-    if (auth) {
-      try {
-        const decoded = await auth.verifyIdToken(token);
-        if (decoded && decoded.uid) {
-          verifiedUid = decoded.uid;
-          verifiedEmail = (decoded.email || '').trim().toLowerCase();
-        }
-      } catch (tokenErr) {
-        console.warn('[SupportAPI] Token verification error:', tokenErr.message);
-        const errRes = {
-          success: false,
-          error: 'Unauthorized: Invalid or expired authentication token. Please sign in to submit an inquiry.'
-        };
-        if (typeof res.status === 'function') return res.status(401).json(errRes);
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(errRes));
-        return;
-      }
-    }
+    authToken = authHeader.split('Bearer ')[1].trim();
   }
 
   // Reject direct unauthenticated requests
-  if (!verifiedUid) {
+  if (!authToken) {
     const errRes = {
       success: false,
       error: 'Unauthorized: You must be registered and signed in to WAYVORA to submit an inquiry or support request.'
@@ -184,15 +166,35 @@ async function handleCreateSupportRequest(req, res, body) {
     return;
   }
 
-  // 2b. Verify user exists in Firebase Authentication
+  const tokenVerification = await verifyUserAuthToken(authToken);
+  if (!tokenVerification || !tokenVerification.isValid || !tokenVerification.uid) {
+    console.warn('[SupportAPI] Token verification error:', tokenVerification?.error || 'Invalid token');
+    const errRes = {
+      success: false,
+      error: 'Unauthorized: Invalid or expired authentication token. Please sign in to submit an inquiry.'
+    };
+    if (typeof res.status === 'function') return res.status(401).json(errRes);
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(errRes));
+    return;
+  }
+
+  verifiedUid = tokenVerification.uid;
+  verifiedEmail = (tokenVerification.email || email).trim().toLowerCase();
+
+  // 2b. Verify user exists in Firebase Authentication (optional enrichment via Admin SDK)
   let userRecord = null;
   try {
     userRecord = await getUserAuthRecord(verifiedUid);
   } catch (uErr) {
-    console.warn('[SupportAPI] User not found in Firebase Auth:', uErr.message);
+    console.warn('[SupportAPI] User lookup in Admin Auth non-fatal:', uErr.message);
   }
 
-  if (!userRecord || !userRecord.email) {
+  // Use verified UID and email from Admin Auth if available, or directly from the verified token
+  userId = (userRecord && userRecord.uid) || verifiedUid;
+  registeredEmail = (userRecord && userRecord.email) ? userRecord.email.trim().toLowerCase() : verifiedEmail;
+
+  if (!userId || !registeredEmail) {
     const errRes = {
       success: false,
       error: 'Forbidden: A registered WAYVORA traveler account was not found for this user.'
@@ -203,8 +205,6 @@ async function handleCreateSupportRequest(req, res, body) {
     return;
   }
 
-  userId = userRecord.uid;
-  registeredEmail = userRecord.email.trim().toLowerCase();
   const source = body.source || (category === 'planning' || category === 'feature' ? 'about_inquiry' : 'support_ticket');
 
   // 3. Save inquiry to Cloud Firestore
@@ -221,7 +221,8 @@ async function handleCreateSupportRequest(req, res, body) {
       message,
       userId,
       source,
-      ticketId: existingTicketId
+      ticketId: existingTicketId,
+      idToken: authToken
     });
     ticketId = saved.id;
     savedInFirestore = true;

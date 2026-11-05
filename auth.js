@@ -92,6 +92,9 @@ const AuthService = {
         this.firestore = window.firestore || (instances ? instances.firestore : (firebase.firestore ? firebase.firestore() : null));
 
         if (this.firebaseApp && this.firebaseAuth) {
+          window.firebaseApp = this.firebaseApp;
+          window.firebaseAuth = this.firebaseAuth;
+          if (this.firestore) window.firestore = this.firestore;
           this.firebaseActive = true;
           console.log("AuthService: Reusing existing Firebase Auth & Cloud Firestore connection.");
 
@@ -125,7 +128,8 @@ const AuthService = {
                 displayName: user.displayName || user.email.split("@")[0],
                 photoURL: user.photoURL || null,
                 isAnonymous: user.isAnonymous,
-                isAdmin: isAdm
+                isAdmin: isAdm,
+                getIdToken: (forceRefresh) => this.getIdToken(forceRefresh)
               };
               this.isAdmin = isAdm;
 
@@ -182,6 +186,38 @@ const AuthService = {
 
   getCurrentUser() {
     return this.currentUser;
+  },
+
+  /**
+   * Returns the underlying live Firebase User instance if authenticated.
+   */
+  getFirebaseUser() {
+    if (this.firebaseAuth && this.firebaseAuth.currentUser) {
+      return this.firebaseAuth.currentUser;
+    }
+    if (typeof window !== "undefined" && window.firebaseAuth && window.firebaseAuth.currentUser) {
+      return window.firebaseAuth.currentUser;
+    }
+    if (typeof firebase !== "undefined" && typeof firebase.auth === "function" && firebase.auth().currentUser) {
+      return firebase.auth().currentUser;
+    }
+    return null;
+  },
+
+  /**
+   * Retrieves the current authenticated user's Firebase ID Token.
+   * Can force-refresh the token when needed (e.g., to fetch newly stamped custom claims).
+   */
+  async getIdToken(forceRefresh = false) {
+    try {
+      const fbUser = this.getFirebaseUser();
+      if (fbUser && typeof fbUser.getIdToken === "function") {
+        return await fbUser.getIdToken(forceRefresh);
+      }
+    } catch (err) {
+      console.warn("AuthService.getIdToken error:", err);
+    }
+    return null;
   },
 
   /**
@@ -254,10 +290,14 @@ const AuthService = {
           email: user.email,
           displayName: user.displayName || user.email.split("@")[0],
           photoURL: user.photoURL || null,
-          isAdmin: isAdm
+          isAdmin: isAdm,
+          getIdToken: (forceRefresh) => this.getIdToken(forceRefresh)
         };
         this.isAdmin = isAdm;
+        if (typeof window !== "undefined") window.firebaseAuth = this.firebaseAuth;
         this.updateNavbarUI();
+        this.notifyAuthSubscribers(this.currentUser);
+        this.handleAuthStateChange(this.currentUser);
         this.closeAuthModal();
         this.executePendingAction();
         return this.currentUser;
@@ -295,8 +335,12 @@ const AuthService = {
           uid: user.uid,
           email: user.email,
           displayName: name.trim(),
-          photoURL: null
+          photoURL: null,
+          isAdmin: false,
+          getIdToken: (forceRefresh) => this.getIdToken(forceRefresh)
         };
+        this.isAdmin = false;
+        if (typeof window !== "undefined") window.firebaseAuth = this.firebaseAuth;
 
         // If Firestore is available, initialize user profile document via reusable FirestoreService
         if (window.FirestoreService && FirestoreService.isAvailable()) {
@@ -320,6 +364,10 @@ const AuthService = {
             console.warn("Firestore user profile save error (non-fatal):", fsErr);
           }
         }
+
+        this.updateNavbarUI();
+        this.notifyAuthSubscribers(this.currentUser);
+        this.handleAuthStateChange(this.currentUser);
 
         this.closeAuthModal();
         this.executePendingAction();

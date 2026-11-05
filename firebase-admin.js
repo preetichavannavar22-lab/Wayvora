@@ -85,6 +85,9 @@ function initFirebaseAdmin() {
           }
         }
         const serviceAccount = JSON.parse(rawVal);
+        if (serviceAccount.private_key && typeof serviceAccount.private_key === 'string') {
+          serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        }
         adminApp = initializeApp({
           credential: cert(serviceAccount),
           projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d'
@@ -135,18 +138,59 @@ function initFirebaseAdmin() {
 }
 
 /**
- * Save a new support request in Firestore
- * Collection: support_requests
+ * Save support request via Firestore REST API when Admin db is unavailable
  */
-async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null, source = 'support_ticket' }) {
-  const { db } = initFirebaseAdmin();
-  if (!db) {
-    throw new Error('Firestore Database is not available on the server.');
+async function saveSupportTicketViaRest({ name, email, category, message, userId, ticketId, registeredEmail, source, idToken }) {
+  const projectId = process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d';
+  const apiKey = process.env.FIREBASE_API_KEY ||
+                 process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+                 process.env.VITE_FIREBASE_API_KEY ||
+                 'AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk';
+
+  const nowIso = new Date().toISOString();
+  const fields = {
+    name: { stringValue: (name || '').trim() },
+    email: { stringValue: (email || '').trim().toLowerCase() },
+    registeredEmail: { stringValue: (registeredEmail || email || '').trim().toLowerCase() },
+    category: { stringValue: category || 'General Inquiry' },
+    message: { stringValue: (message || '').trim() },
+    source: { stringValue: source || 'support_ticket' },
+    status: { stringValue: 'open' },
+    replyHistory: { arrayValue: { values: [] } },
+    createdAt: { timestampValue: nowIso },
+    updatedAt: { timestampValue: nowIso }
+  };
+  if (userId) {
+    fields.userId = { stringValue: userId };
   }
 
-  const { FieldValue } = require('firebase-admin/firestore');
+  const generatedId = ticketId || ('TKT-' + Date.now().toString(36).toUpperCase());
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/support_requests?documentId=${encodeURIComponent(generatedId)}&key=${apiKey}`;
 
-  const ticketData = {
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (idToken) {
+    headers['Authorization'] = `Bearer ${idToken}`;
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify({ fields })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Firestore REST API returned HTTP ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  const docName = data.name || '';
+  const savedId = docName.split('/').pop() || generatedId;
+
+  return {
+    id: savedId,
     name: (name || '').trim(),
     email: (email || '').trim().toLowerCase(),
     registeredEmail: (registeredEmail || email || '').trim().toLowerCase(),
@@ -155,26 +199,60 @@ async function saveSupportTicket({ name, email, category, message, userId = null
     source: source || 'support_ticket',
     status: 'open',
     replyHistory: [],
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp()
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    userId: userId || null
   };
+}
 
-  if (userId) {
-    ticketData.userId = userId;
+/**
+ * Save a new support request in Firestore
+ * Collection: support_requests
+ */
+async function saveSupportTicket({ name, email, category, message, userId = null, ticketId = null, registeredEmail = null, source = 'support_ticket', idToken = null }) {
+  const { db } = initFirebaseAdmin();
+  if (db) {
+    const { FieldValue } = require('firebase-admin/firestore');
+
+    const ticketData = {
+      name: (name || '').trim(),
+      email: (email || '').trim().toLowerCase(),
+      registeredEmail: (registeredEmail || email || '').trim().toLowerCase(),
+      category: category || 'General Inquiry',
+      message: (message || '').trim(),
+      source: source || 'support_ticket',
+      status: 'open',
+      replyHistory: [],
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    if (userId) {
+      ticketData.userId = userId;
+    }
+
+    let docRef;
+    if (ticketId) {
+      docRef = db.collection('support_requests').doc(ticketId);
+      await docRef.set(ticketData, { merge: true });
+    } else {
+      docRef = await db.collection('support_requests').add(ticketData);
+    }
+
+    return {
+      id: docRef.id,
+      ...ticketData
+    };
   }
 
-  let docRef;
-  if (ticketId) {
-    docRef = db.collection('support_requests').doc(ticketId);
-    await docRef.set(ticketData, { merge: true });
-  } else {
-    docRef = await db.collection('support_requests').add(ticketData);
+  // Fallback to Firestore REST API if idToken is available
+  if (idToken) {
+    return await saveSupportTicketViaRest({
+      name, email, category, message, userId, ticketId, registeredEmail, source, idToken
+    });
   }
 
-  return {
-    id: docRef.id,
-    ...ticketData
-  };
+  throw new Error('Firestore Database is not available on the server.');
 }
 
 /**
@@ -212,6 +290,90 @@ async function getSupportTicket(ticketId) {
 }
 
 /**
+ * Verifies a Firebase Auth ID Token for any authenticated user.
+ * 1. Attempts verification with Firebase Admin SDK (if initialized).
+ * 2. If Admin SDK is not initialized or throws, falls back to Google Identity Toolkit REST API
+ *    (accounts:lookup) using the Firebase Web API key.
+ */
+async function verifyUserAuthToken(idToken) {
+  if (!idToken || typeof idToken !== 'string') {
+    return { isValid: false, error: 'No ID token provided.' };
+  }
+
+  // 1. Try Firebase Admin SDK first
+  try {
+    const { auth } = initFirebaseAdmin();
+    if (auth && typeof auth.verifyIdToken === 'function') {
+      const decoded = await auth.verifyIdToken(idToken);
+      if (decoded && decoded.uid) {
+        const emailLower = (decoded.email || '').toLowerCase().trim();
+        const isAdmin = (
+          decoded.admin === true ||
+          decoded.uid === 'MXMCpQFfM7Zyp865ljTXiasFB2M2' ||
+          emailLower === 'wayvora.admin@gmail.com'
+        );
+        return {
+          isValid: true,
+          uid: decoded.uid,
+          email: decoded.email || null,
+          displayName: decoded.name || null,
+          emailVerified: !!decoded.email_verified,
+          isAdmin,
+          decoded
+        };
+      }
+    }
+  } catch (adminErr) {
+    console.warn('[FirebaseAdmin] Admin verifyIdToken unavailable or threw error:', adminErr.message);
+  }
+
+  // 2. Fallback to Google Identity Toolkit REST API
+  try {
+    const apiKey = process.env.FIREBASE_API_KEY ||
+                   process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+                   process.env.VITE_FIREBASE_API_KEY ||
+                   'AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk';
+
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.users && data.users.length > 0) {
+      const u = data.users[0];
+      const emailLower = (u.email || '').toLowerCase().trim();
+      let isAdmin = (
+        u.localId === 'MXMCpQFfM7Zyp865ljTXiasFB2M2' ||
+        emailLower === 'wayvora.admin@gmail.com'
+      );
+      if (u.customAttributes) {
+        try {
+          const claims = JSON.parse(u.customAttributes);
+          if (claims.admin === true) isAdmin = true;
+        } catch (cErr) {}
+      }
+      return {
+        isValid: true,
+        uid: u.localId,
+        email: u.email || null,
+        displayName: u.displayName || null,
+        emailVerified: !!u.emailVerified,
+        isAdmin,
+        rawUser: u
+      };
+    } else {
+      const errMsg = (data && data.error && data.error.message) || `HTTP ${res.status}`;
+      return { isValid: false, error: errMsg };
+    }
+  } catch (restErr) {
+    return { isValid: false, error: restErr.message };
+  }
+}
+
+/**
  * Verifies a Firebase Auth ID Token and checks admin status
  */
 async function verifyAdminAuthToken(idToken) {
@@ -219,29 +381,17 @@ async function verifyAdminAuthToken(idToken) {
     return { isValid: false, isAdmin: false, error: 'No ID token provided.' };
   }
 
-  const { auth } = initFirebaseAdmin();
-  if (!auth) {
-    return { isValid: false, isAdmin: false, error: 'Firebase Auth is not initialized on the server.' };
+  const userAuth = await verifyUserAuthToken(idToken);
+  if (!userAuth.isValid) {
+    return { isValid: false, isAdmin: false, error: userAuth.error || 'Token verification failed.' };
   }
 
-  try {
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const emailLower = (decodedToken.email || '').toLowerCase().trim();
-    const isAdmin = (
-      decodedToken.admin === true ||
-      decodedToken.uid === 'MXMCpQFfM7Zyp865ljTXiasFB2M2' ||
-      emailLower === 'wayvora.admin@gmail.com'
-    );
-
-    return {
-      isValid: true,
-      isAdmin,
-      uid: decodedToken.uid,
-      email: decodedToken.email
-    };
-  } catch (err) {
-    return { isValid: false, isAdmin: false, error: err.message };
-  }
+  return {
+    isValid: true,
+    isAdmin: !!userAuth.isAdmin,
+    uid: userAuth.uid,
+    email: userAuth.email
+  };
 }
 
 /**
@@ -295,6 +445,7 @@ module.exports = {
   updateSupportTicket,
   getSupportTicket,
   verifyAdminAuthToken,
+  verifyUserAuthToken,
   getUserAuthRecord,
   getUserAuthRecordByEmail
 };
