@@ -68,8 +68,6 @@ function initFirebaseAdmin() {
 
   try {
     const { initializeApp, cert, getApps } = require('firebase-admin/app');
-    const { getFirestore } = require('firebase-admin/firestore');
-    const { getAuth } = require('firebase-admin/auth');
 
     if (getApps().length > 0) {
       adminApp = getApps()[0];
@@ -128,8 +126,22 @@ function initFirebaseAdmin() {
       }
     }
 
-    firestoreDb = getFirestore(adminApp);
-    authService = getAuth(adminApp);
+    if (adminApp) {
+      try {
+        const { getFirestore } = require('firebase-admin/firestore');
+        firestoreDb = getFirestore(adminApp);
+      } catch (fsErr) {
+        console.warn('Firebase Admin: Failed to initialize Firestore:', fsErr.message);
+      }
+
+      try {
+        const { getAuth } = require('firebase-admin/auth');
+        authService = getAuth(adminApp);
+      } catch (authErr) {
+        console.warn('Firebase Admin: Failed to initialize Auth:', authErr.message);
+      }
+    }
+
     return { app: adminApp, db: firestoreDb, auth: authService };
   } catch (err) {
     console.error('Failed to initialize Firebase Admin SDK:', err.message);
