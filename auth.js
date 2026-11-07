@@ -1,634 +1,1493 @@
 /**
- * WAYVORA - Google OAuth2 Authentication & Callback Handler
- * Handles OAuth2 authorization initiation, callback handling, status, test email, and disconnection.
- * Works as a Vercel Serverless Function and is mounted in server.js.
+ * Wayvora - Authentication & Account Management Service
+ * Supports Google Firebase Authentication (Email/Password) with Cloud Firestore sync,
+ * robust form validation, session persistence, and protected feature guards.
  */
 
-const {
-  getAuthUrl,
-  exchangeCodeForTokens,
-  getConnectionStatus,
-  disconnect,
-  sendEmailWithGmail,
-  getConfig
-} = require('./gmail-service.js');
+const AuthService = {
+  currentUser: null,
+  isAdmin: false,
+  adminUid: "MXMCpQFfM7Zyp865ljTXiasFB2M2",
+  adminEmail: "wayvora.admin@gmail.com",
+  firebaseActive: false,
+  firebaseApp: null,
+  firebaseAuth: null,
+  firestore: null,
+  pendingAction: null,
+  authSubscribers: [],
+  icons: {
+    eye: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
+    eyeOff: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-eye-off"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path><line x1="2" y1="2" x2="22" y2="22"></line></svg>`
+  },
 
-const { verifyAdminAuthToken } = require('./firebase-admin.js');
+  init() {
+    this.initFirebase();
+    this.bindGlobalAuthEvents();
+    this.updateNavbarUI();
+    this.checkPasswordResetRedirect();
+  },
 
-/**
- * Main HTTP Handler for /api/auth/* routes
- */
-async function handleAuthRequest(req, res) {
-  // CORS Headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  /**
+   * Detects and handles Firebase Password Reset Action URLs
+   * e.g. https://wayvora.vercel.app/?mode=resetPassword&oobCode=xyz&apiKey=...
+   */
+  async checkPasswordResetRedirect() {
+    try {
+      if (typeof window === "undefined" || !window.location || !window.location.search) return;
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode");
+      const oobCode = params.get("oobCode");
 
-  if (req.method === 'OPTIONS') {
-    if (typeof res.status === 'function') return res.status(204).end();
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+      if (mode === "resetPassword" && oobCode) {
+        console.log("AuthService: Detected password reset action URL (mode=resetPassword).");
 
-  let pathname = '/';
-  let searchParams = new URLSearchParams();
-  try {
-    const parsedUrl = new URL(req.url, 'http://localhost');
-    pathname = parsedUrl.pathname;
-    searchParams = parsedUrl.searchParams;
-  } catch (e) {
-    const qIdx = (req.url || '').indexOf('?');
-    pathname = qIdx >= 0 ? req.url.slice(0, qIdx) : (req.url || '/');
-    if (qIdx >= 0) {
-      searchParams = new URLSearchParams(req.url.slice(qIdx + 1));
+        let retries = 0;
+        const checkAuthReady = setInterval(async () => {
+          retries++;
+          if (this.firebaseAuth || retries > 10) {
+            clearInterval(checkAuthReady);
+            if (!this.firebaseAuth && typeof firebase !== "undefined" && typeof firebase.auth === "function") {
+              this.firebaseAuth = firebase.auth();
+              this.firebaseActive = true;
+            }
+
+            if (this.firebaseAuth && typeof this.firebaseAuth.verifyPasswordResetCode === "function") {
+              try {
+                const targetEmail = await this.firebaseAuth.verifyPasswordResetCode(oobCode);
+                this.pendingResetOobCode = oobCode;
+                this.pendingResetEmail = targetEmail;
+
+                // Open modal in confirm_reset panel
+                this.openAuthModal(null, "confirm_reset");
+                const emailDisplay = document.getElementById("reset-email-text");
+                if (emailDisplay) emailDisplay.textContent = targetEmail;
+                this.setAuthSuccess(`Verified password-reset link for ${targetEmail}. Please create your new WAYVORA password.`);
+              } catch (verifyErr) {
+                console.error("verifyPasswordResetCode error:", verifyErr);
+                this.openAuthModal(null, "forgot");
+                this.setAuthError("This password-reset link is invalid, expired, or has already been used. Please request a new link.");
+              }
+            }
+          }
+        }, 200);
+      }
+    } catch (e) {
+      console.warn("Could not check password reset redirect:", e);
     }
-  }
+  },
 
-  const cleanPath = (pathname || '').replace(/\.js$/, '').replace(/\/+$/, '').toLowerCase();
-  const queryAction = (searchParams.get('action') || (req.query && req.query.action) || (req.body && req.body.action) || '').toLowerCase();
+  /**
+   * Reuses the existing single Firebase Authentication and Cloud Firestore connection.
+   */
+  initFirebase() {
+    const isConfigured = window.isFirebaseConfigured ? window.isFirebaseConfigured() : false;
+    const hasSdk = typeof firebase !== "undefined" && firebase.initializeApp;
 
-  let vercelPath = '';
-  if (req.query && req.query.path) {
-    vercelPath = (Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path)).toLowerCase();
-  }
-
-  try {
-    // -------------------------------------------------------------------------
-    // 1. GET /api/auth/google/url - Generate OAuth Authorization URL
-    // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/url') || vercelPath.endsWith('url') || queryAction === 'url') && req.method === 'GET') {
-      const stateParam = searchParams.get('state') || (req.query && req.query.state) || '';
+    if (hasSdk && isConfigured) {
       try {
-        const result = getAuthUrl(stateParam);
-        return sendJsonResponse(res, 200, { success: true, ...result });
+        // Reuse the single Firebase instance initialized in firebase-config.js
+        const instances = (typeof window.initFirebase === "function") ? window.initFirebase() : null;
+        this.firebaseApp = window.firebaseApp || (instances ? instances.app : (firebase.apps && firebase.apps.length ? firebase.app() : null));
+        this.firebaseAuth = window.firebaseAuth || (instances ? instances.auth : (firebase.auth ? firebase.auth() : null));
+        this.firestore = window.firestore || (instances ? instances.firestore : (firebase.firestore ? firebase.firestore() : null));
+
+        if (this.firebaseApp && this.firebaseAuth) {
+          window.firebaseApp = this.firebaseApp;
+          window.firebaseAuth = this.firebaseAuth;
+          if (this.firestore) window.firestore = this.firestore;
+          this.firebaseActive = true;
+          console.log("AuthService: Reusing existing Firebase Auth & Cloud Firestore connection.");
+
+          // Subscribe to live Firebase auth changes with protected admin verification
+          this.firebaseAuth.onAuthStateChanged(async (user) => {
+            if (user) {
+              const emailLower = (user.email || "").toLowerCase().trim();
+              const isEmailAdmin = emailLower === this.adminEmail.toLowerCase();
+              const isUidAdmin = user.uid === this.adminUid;
+              let isAdm = isUidAdmin || isEmailAdmin;
+
+              try {
+                // Verify custom claims stamped by Firebase Admin SDK
+                // Check cached token claims first; if not detected, force refresh to fetch latest claims
+                let tokenResult = await user.getIdTokenResult(false);
+                if (tokenResult && tokenResult.claims && tokenResult.claims.admin === true) {
+                  isAdm = true;
+                } else {
+                  tokenResult = await user.getIdTokenResult(true);
+                  if (tokenResult && tokenResult.claims && tokenResult.claims.admin === true) {
+                    isAdm = true;
+                  }
+                }
+              } catch (tokenErr) {
+                // Fail-safe check: UID and email checks retain admin status
+              }
+
+              this.currentUser = {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.email.split("@")[0],
+                photoURL: user.photoURL || null,
+                isAnonymous: user.isAnonymous,
+                isAdmin: isAdm,
+                getIdToken: (forceRefresh) => this.getIdToken(forceRefresh)
+              };
+              this.isAdmin = isAdm;
+
+              if (isAdm) {
+                console.log("🛡️ Official Administrator session authenticated:", user.email);
+              }
+            } else {
+              this.currentUser = null;
+              this.isAdmin = false;
+            }
+            this.notifyAuthSubscribers(this.currentUser);
+            this.updateNavbarUI();
+            this.handleAuthStateChange(this.currentUser);
+          });
+        } else {
+          this.firebaseActive = false;
+          this.loadLocalCachedSession();
+        }
+
       } catch (err) {
-        return sendJsonResponse(res, 400, {
-          success: false,
-          error: err.message,
-          isConfigured: false
-        });
+        console.warn("Failed to reuse Firebase connection:", err);
+        this.firebaseActive = false;
+        this.loadLocalCachedSession();
       }
+    } else {
+      this.firebaseActive = false;
+      this.loadLocalCachedSession();
     }
+  },
 
-    // -------------------------------------------------------------------------
-    // 2. GET /api/auth/google/callback - OAuth2 Callback from Google
-    // -------------------------------------------------------------------------
-    const isCallback = (
-      cleanPath.endsWith('/callback') ||
-      vercelPath.endsWith('callback') ||
-      queryAction === 'callback' ||
-      searchParams.has('code') ||
-      searchParams.has('error') ||
-      (req.query && (req.query.code || req.query.error))
+  /**
+   * Load local cached session for developer testing or demo use
+   */
+  loadLocalCachedSession() {
+    try {
+      const stored = localStorage.getItem("wayvora_active_user");
+      if (stored) {
+        this.currentUser = JSON.parse(stored);
+      }
+    } catch (e) {
+      this.currentUser = null;
+    }
+    this.updateNavbarUI();
+    this.handleAuthStateChange(this.currentUser);
+  },
+
+  isConfigured() {
+    return this.firebaseActive;
+  },
+
+  isAuthenticated() {
+    return !!this.currentUser;
+  },
+
+  getCurrentUser() {
+    return this.currentUser;
+  },
+
+  /**
+   * Returns the underlying live Firebase User instance if authenticated.
+   */
+  getFirebaseUser() {
+    if (this.firebaseAuth && this.firebaseAuth.currentUser) {
+      return this.firebaseAuth.currentUser;
+    }
+    if (typeof window !== "undefined" && window.firebaseAuth && window.firebaseAuth.currentUser) {
+      return window.firebaseAuth.currentUser;
+    }
+    if (typeof firebase !== "undefined" && typeof firebase.auth === "function" && firebase.auth().currentUser) {
+      return firebase.auth().currentUser;
+    }
+    return null;
+  },
+
+  /**
+   * Retrieves the current authenticated user's Firebase ID Token.
+   * Can force-refresh the token when needed (e.g., to fetch newly stamped custom claims).
+   */
+  async getIdToken(forceRefresh = false) {
+    try {
+      const fbUser = this.getFirebaseUser();
+      if (fbUser && typeof fbUser.getIdToken === "function") {
+        return await fbUser.getIdToken(forceRefresh);
+      }
+    } catch (err) {
+      console.warn("AuthService.getIdToken error:", err);
+    }
+    return null;
+  },
+
+  /**
+   * Protected administrator check (checks custom claims, authorized UID, and admin email)
+   */
+  isAdministrator() {
+    if (!this.currentUser) return false;
+    const emailLower = (this.currentUser.email || "").toLowerCase().trim();
+    return !!(
+      this.currentUser.isAdmin ||
+      this.currentUser.uid === this.adminUid ||
+      (emailLower && emailLower === this.adminEmail.toLowerCase())
     );
+  },
 
-    if (isCallback && req.method === 'GET') {
-      const code = searchParams.get('code') || (req.query && req.query.code);
-      const error = searchParams.get('error') || (req.query && req.query.error);
-      const errorDescription = searchParams.get('error_description') || (req.query && req.query.error_description);
+  onAuthStateChanged(callback) {
+    if (typeof callback === "function") {
+      this.authSubscribers.push(callback);
+      // Immediately call with current state
+      callback(this.currentUser);
+    }
+  },
 
-      if (error) {
-        return renderHtmlResponse(res, 400, renderErrorPage('Google Authorization Denied', errorDescription || error));
+  notifyAuthSubscribers(user) {
+    this.authSubscribers.forEach(cb => {
+      try { cb(user); } catch (e) { console.error("Error in auth subscriber:", e); }
+    });
+  },
+
+  /**
+   * Handle internal state updates when user logs in or out
+   */
+  handleAuthStateChange(user) {
+    if (window.AppState) {
+      if (user) {
+        AppState.setUser(user.uid);
+      } else {
+        AppState.setUser(null);
       }
+    }
 
-      if (!code) {
-        return renderHtmlResponse(res, 400, renderErrorPage('Missing Authorization Code', 'Google redirected without an authorization code. Please return to the Admin Dashboard and try connecting again.'));
-      }
+    if (window.App && typeof App.updateFavouritesBadge === "function") {
+      App.updateFavouritesBadge();
+    }
+  },
 
+  // =================== AUTH ACTIONS ===================
+
+  /**
+   * Sign In with Email & Password
+   */
+  async signIn(email, password) {
+    this.validateCredentials(email, password);
+
+    if (this.firebaseActive && this.firebaseAuth) {
       try {
-        await exchangeCodeForTokens(code);
-        return renderHtmlResponse(res, 200, renderSuccessPage());
-      } catch (tokenErr) {
-        console.error('[GoogleAuth] Token exchange failed:', tokenErr);
-        return renderHtmlResponse(res, 500, renderErrorPage('Authorization Exchange Failed', tokenErr.message));
+        const userCred = await this.firebaseAuth.signInWithEmailAndPassword(email, password);
+        const user = userCred.user;
+        const emailLower = (user.email || "").toLowerCase().trim();
+        let isAdm = user.uid === this.adminUid || emailLower === this.adminEmail.toLowerCase();
+        try {
+          const tokenResult = await user.getIdTokenResult(true);
+          if (tokenResult && tokenResult.claims && tokenResult.claims.admin === true) {
+            isAdm = true;
+          }
+        } catch (claimErr) {}
+
+        this.currentUser = {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email.split("@")[0],
+          photoURL: user.photoURL || null,
+          isAdmin: isAdm,
+          getIdToken: (forceRefresh) => this.getIdToken(forceRefresh)
+        };
+        this.isAdmin = isAdm;
+        if (typeof window !== "undefined") window.firebaseAuth = this.firebaseAuth;
+        this.updateNavbarUI();
+        this.notifyAuthSubscribers(this.currentUser);
+        this.handleAuthStateChange(this.currentUser);
+        this.closeAuthModal();
+        this.executePendingAction();
+        return this.currentUser;
+      } catch (err) {
+        throw new Error(this.getHumanReadableError(err));
+      }
+    } else {
+      // Firebase is not configured with live credentials
+      throw new Error(
+        "Firebase credentials not detected. Please add your Firebase API keys to js/firebase-config.js, or use 'Try Demo Account' to test features."
+      );
+    }
+  },
+
+  /**
+   * Create Account with Name, Email & Password
+   */
+  async signUp(name, email, password) {
+    this.validateCredentials(email, password);
+    if (!name || name.trim().length < 2) {
+      throw new Error("Please enter your full name (at least 2 characters).");
+    }
+
+    if (this.firebaseActive && this.firebaseAuth) {
+      try {
+        const userCred = await this.firebaseAuth.createUserWithEmailAndPassword(email, password);
+        const user = userCred.user;
+
+        // Set user display name
+        if (name && user.updateProfile) {
+          await user.updateProfile({ displayName: name.trim() });
+        }
+
+        this.currentUser = {
+          uid: user.uid,
+          email: user.email,
+          displayName: name.trim(),
+          photoURL: null,
+          isAdmin: false,
+          getIdToken: (forceRefresh) => this.getIdToken(forceRefresh)
+        };
+        this.isAdmin = false;
+        if (typeof window !== "undefined") window.firebaseAuth = this.firebaseAuth;
+
+        // If Firestore is available, initialize user profile document via reusable FirestoreService
+        if (window.FirestoreService && FirestoreService.isAvailable()) {
+          try {
+            await FirestoreService.saveUserProfile(user.uid, {
+              name: name.trim(),
+              email: email.trim().toLowerCase()
+            });
+          } catch (fsErr) {
+            console.warn("Firestore user profile save error (non-fatal):", fsErr);
+          }
+        } else if (this.firestore) {
+          try {
+            await this.firestore.collection("users").doc(user.uid).set({
+              uid: user.uid,
+              name: name.trim(),
+              email: email.trim().toLowerCase(),
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+          } catch (fsErr) {
+            console.warn("Firestore user profile save error (non-fatal):", fsErr);
+          }
+        }
+
+        this.updateNavbarUI();
+        this.notifyAuthSubscribers(this.currentUser);
+        this.handleAuthStateChange(this.currentUser);
+
+        this.closeAuthModal();
+        this.executePendingAction();
+        return this.currentUser;
+      } catch (err) {
+        throw new Error(this.getHumanReadableError(err));
+      }
+    } else {
+      throw new Error(
+        "Firebase credentials not detected. Please add your Firebase API keys to js/firebase-config.js, or use 'Try Demo Account' to test features."
+      );
+    }
+  },
+
+  /**
+   * Password Reset Email
+   * Dispatches live password reset email through Google Firebase Authentication
+   */
+  async resetPassword(email) {
+    if (!email || !this.isValidEmail(email)) {
+      throw new Error("Please enter a valid email address.");
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Re-verify Firebase Auth instance availability
+    if (!this.firebaseAuth) {
+      this.initFirebase();
+    }
+    if (!this.firebaseAuth && typeof window !== "undefined" && window.firebaseAuth) {
+      this.firebaseAuth = window.firebaseAuth;
+      this.firebaseActive = true;
+    }
+    if (!this.firebaseAuth && typeof firebase !== "undefined" && typeof firebase.auth === "function") {
+      this.firebaseAuth = firebase.auth();
+      this.firebaseActive = true;
+    }
+
+    if (this.firebaseActive && this.firebaseAuth) {
+      try {
+        // Build optional action code settings if running on an authorized domain
+        let actionCodeSettings = null;
+        if (typeof window !== "undefined" && window.location && window.location.origin) {
+          const origin = window.location.origin;
+          const host = window.location.hostname;
+          if (host === "localhost" || host === "127.0.0.1" || host.includes("wayvora") || host.endsWith(".firebaseapp.com") || host.endsWith(".web.app") || host.endsWith(".vercel.app")) {
+            actionCodeSettings = {
+              url: origin,
+              handleCodeInApp: false
+            };
+          }
+        }
+
+        try {
+          if (actionCodeSettings) {
+            await this.firebaseAuth.sendPasswordResetEmail(cleanEmail, actionCodeSettings);
+          } else {
+            await this.firebaseAuth.sendPasswordResetEmail(cleanEmail);
+          }
+        } catch (firstErr) {
+          // If actionCodeSettings caused continue-uri error, safely retry with default Firebase action handler
+          if (actionCodeSettings && (firstErr.code === "auth/unauthorized-continue-uri" || firstErr.code === "auth/invalid-continue-uri")) {
+            console.warn("Retrying password reset without actionCodeSettings:", firstErr.message);
+            await this.firebaseAuth.sendPasswordResetEmail(cleanEmail);
+          } else {
+            throw firstErr;
+          }
+        }
+
+        return true;
+      } catch (err) {
+        console.error("Firebase sendPasswordResetEmail error:", err);
+        throw new Error(this.getHumanReadableError(err));
+      }
+    } else {
+      throw new Error(
+        "Firebase credentials not detected. Please verify your Firebase API keys in js/firebase-config.js to send live password reset emails."
+      );
+    }
+  },
+
+  /**
+   * Completes the password reset process using Firebase Authentication confirmPasswordReset
+   */
+  async confirmPasswordReset(oobCode, newPassword) {
+    if (!oobCode) {
+      throw new Error("Missing password reset action code.");
+    }
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error("Password must be at least 6 characters long.");
+    }
+
+    if (!this.firebaseAuth && typeof firebase !== "undefined" && typeof firebase.auth === "function") {
+      this.firebaseAuth = firebase.auth();
+      this.firebaseActive = true;
+    }
+
+    if (this.firebaseActive && this.firebaseAuth && typeof this.firebaseAuth.confirmPasswordReset === "function") {
+      try {
+        await this.firebaseAuth.confirmPasswordReset(oobCode, newPassword);
+        return true;
+      } catch (err) {
+        throw new Error(this.getHumanReadableError(err));
+      }
+    } else {
+      throw new Error("Firebase Authentication is not ready to confirm password reset.");
+    }
+  },
+
+  /**
+   * Demo Mode Login (Allows testing all protected features even before user pastes keys)
+   */
+  loginDemoUser(customName = "Alex Explorer", customEmail = "alex.traveler@wayvora.com") {
+    const demoUser = {
+      uid: "demo-traveler-uid-42",
+      email: customEmail,
+      displayName: customName,
+      photoURL: null,
+      isDemo: true
+    };
+
+    this.currentUser = demoUser;
+    localStorage.setItem("wayvora_active_user", JSON.stringify(demoUser));
+    this.notifyAuthSubscribers(demoUser);
+    this.updateNavbarUI();
+    this.handleAuthStateChange(demoUser);
+
+    if (window.UI) {
+      UI.showToast(`Welcome, ${demoUser.displayName}! Signed in (Demo Mode)`, "success");
+    }
+
+    this.closeAuthModal();
+    this.executePendingAction();
+    return demoUser;
+  },
+
+  /**
+   * Sign Out
+   */
+  async signOut() {
+    if (this.firebaseActive && this.firebaseAuth) {
+      try {
+        await this.firebaseAuth.signOut();
+      } catch (e) {
+        console.warn("Firebase sign out error:", e);
       }
     }
 
-    // -------------------------------------------------------------------------
-    // 3. GET /api/auth/google/status - Connection Status (Admin Dashboard)
-    // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/status') || vercelPath.endsWith('status') || cleanPath === '' || cleanPath === '/' || cleanPath === '/api/auth' || queryAction === 'status') && req.method === 'GET') {
-      const status = await getConnectionStatus();
-      if (status.isConnected) {
-        return sendJsonResponse(res, 200, {
-          success: true,
-          ...status,
-          method: 'oauth2',
-          provider: 'gmail',
-          scope: status.scope || 'https://www.googleapis.com/auth/gmail.send',
-          channel: `Gmail API (Google OAuth 2.0) • ${status.connectedEmail || 'wayvora.admin@gmail.com'}`
-        });
+    this.currentUser = null;
+    localStorage.removeItem("wayvora_active_user");
+    this.notifyAuthSubscribers(null);
+    this.updateNavbarUI();
+    this.handleAuthStateChange(null);
+
+    if (window.UI) {
+      UI.showToast("You have been signed out.", "info");
+    }
+  },
+
+  // =================== FEATURE PROTECTION & INTENT RESUMPTION ===================
+
+  /**
+   * Guard for protected actions (Saving favourites, planning trips, itinerary saving).
+   * If authenticated: invokes callback immediately.
+   * If unauthenticated: shows login modal with context, stores pending action, and resumes upon login.
+   */
+  requireAuth(callback, pendingActionData = null) {
+    if (this.isAuthenticated()) {
+      if (typeof callback === "function") {
+        callback();
       }
-      const { getConfig: getSmtpConfig } = require('./gmail-smtp-service.js');
-      const smtpConfig = getSmtpConfig();
-      if (smtpConfig.isConfigured) {
-        return sendJsonResponse(res, 200, {
-          success: true,
-          isConnected: true,
-          isConfigured: true,
-          connectedEmail: smtpConfig.user,
-          method: 'smtp',
-          provider: 'gmail_smtp',
-          scope: 'smtp.gmail.com:465 (SSL)',
-          channel: 'Gmail SMTP (Nodemailer) • wayvora.admin@gmail.com'
-        });
-      }
-      return sendJsonResponse(res, 200, { success: true, ...status });
+      return true;
     }
 
-    // -------------------------------------------------------------------------
-    // 4. POST /api/auth/google/disconnect - Disconnect Gmail Integration
-    // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/disconnect') || vercelPath.endsWith('disconnect') || queryAction === 'disconnect') && req.method === 'POST') {
-      // Admin verification
-      const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split('Bearer ')[1].trim();
-        const verification = await verifyAdminAuthToken(token);
-        if (!verification.isValid || !verification.isAdmin) {
-          return sendJsonResponse(res, 403, { success: false, error: 'Unauthorized: Admin privileges required.' });
-        }
-      }
+    // Store pending intent
+    this.pendingAction = {
+      callback: callback,
+      data: pendingActionData
+    };
 
-      const result = await disconnect();
-      return sendJsonResponse(res, 200, result);
+    let reasonPrompt = "Please sign in to access your personal travel features.";
+    if (pendingActionData && pendingActionData.label) {
+      reasonPrompt = `Please sign in to ${pendingActionData.label}.`;
     }
 
-    // -------------------------------------------------------------------------
-    // 5. POST /api/auth/google/test - Send Test Email via Gmail API (OAuth 2.0)
-    // -------------------------------------------------------------------------
-    if ((cleanPath.endsWith('/test') || vercelPath.endsWith('test') || queryAction === 'test') && req.method === 'POST') {
-      // Admin verification
-      const authHeader = req.headers ? (req.headers.authorization || req.headers.Authorization) : null;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split('Bearer ')[1].trim();
-        const verification = await verifyAdminAuthToken(token);
-        if (!verification.isValid || !verification.isAdmin) {
-          return sendJsonResponse(res, 403, { success: false, error: 'Unauthorized: Admin privileges required.' });
+    this.openAuthModal(reasonPrompt);
+    return false;
+  },
+
+  /**
+   * Resumes the user's intended action after successful authentication.
+   */
+  executePendingAction() {
+    if (!this.pendingAction) return;
+
+    const action = this.pendingAction;
+    this.pendingAction = null;
+
+    setTimeout(() => {
+      if (typeof action.callback === "function") {
+        action.callback();
+      } else if (action.data) {
+        if (action.data.type === "route" && action.data.route) {
+          window.location.hash = `#${action.data.route}`;
+        } else if (action.data.type === "favourite" && action.data.destinationId) {
+          if (window.AppState) {
+            const isNowFav = AppState.toggleFavourite(action.data.destinationId);
+            if (window.UI) {
+              UI.showToast(isNowFav ? "Destination saved to your favourites!" : "Removed from favourites", isNowFav ? "heart" : "info");
+            }
+          }
+        } else if (action.data.type === "plan_trip" && action.data.destinationId) {
+          if (window.UI) {
+            UI.openTripModalWithDestination(action.data.destinationId);
+          }
+        } else if (action.data.type === "generate_trip" && action.data.tripData) {
+          const t = action.data.tripData;
+          if (window.AppState) {
+            const selectedDest = window.DataService ? DataService.getDestinationById(t.destId) : null;
+            const destCurrency = window.CurrencyService ? CurrencyService.getDestinationCurrency(selectedDest || t.destId) : "USD";
+            const newTrip = AppState.createNewTrip({
+              title: t.title || "Vacation",
+              destinationId: t.destId,
+              destinationName: selectedDest ? selectedDest.name : (t.destId.toUpperCase()),
+              country: selectedDest ? selectedDest.country : "",
+              startDate: t.startDate,
+              endDate: t.endDate,
+              travelers: t.travelers,
+              targetBudget: t.targetBudget,
+              currency: destCurrency
+            });
+            AppState.saveTrip(newTrip);
+            AppState.setActiveTripId(newTrip.id);
+            if (window.UI) UI.showToast(`Itinerary for ${newTrip.title} created!`, "success");
+            window.location.hash = "#planner";
+            if (window.Planner) Planner.render();
+          }
         }
       }
+    }, 250);
+  },
 
-      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+  // =================== VALIDATION & HELPERS ===================
 
-      if (process.env.SUPPORT_REPLY_KILL_SWITCH === 'true') {
-        return sendJsonResponse(res, 200, {
-          success: false,
-          error: 'Outgoing emails are temporarily disabled via server-side kill switch (SUPPORT_REPLY_KILL_SWITCH=true).',
-          killSwitchActive: true
-        });
-      }
+  validateCredentials(email, password) {
+    if (!email || !this.isValidEmail(email)) {
+      throw new Error("Please enter a valid email address.");
+    }
+    if (!password || password.length < 6) {
+      throw new Error("Password must be at least 6 characters long.");
+    }
+  },
 
-      const targetEmail = body.to || 'wayvora.admin@gmail.com';
+  isValidEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(String(email).toLowerCase());
+  },
 
-      const config = getConfig();
-      const status = await getConnectionStatus();
+  getHumanReadableError(err) {
+    if (!err) return "An unexpected error occurred. Please try again.";
+    const code = err.code || "";
+    const msg = err.message || "";
 
-      // Primary: Gmail API via Google OAuth 2.0
-      if (status.isConnected) {
-        const testResult = await sendEmailWithGmail({
-          to: targetEmail,
-          subject: 'WAYVORA - Gmail API OAuth2 Verification Test',
-          html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 550px; margin: auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 10px;">
-              <div style="background: #0f172a; padding: 18px 20px; border-radius: 8px 8px 0 0; text-align: center;">
-                <h2 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 1px;">WAYVORA GMAIL API TEST</h2>
-              </div>
-              <div style="padding: 20px 0;">
-                <p style="font-size: 15px; color: #1e293b;">Hello Administrator,</p>
-                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                  <strong style="color: #166534;">✓ Gmail Connection Verified!</strong>
-                  <p style="margin: 6px 0 0 0; color: #14532d; font-size: 13px;">This email confirms that WAYVORA has securely established an authenticated connection with Gmail via Google OAuth 2.0 without requiring any App Password.</p>
-                </div>
-                <p style="font-size: 13px; color: #64748b;">Support ticket replies sent from the WAYVORA Admin Dashboard will now be delivered directly from <strong>${config.adminGmail}</strong>.</p>
-              </div>
-              <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 12px; color: #94a3b8; text-align: center;">
-                Dispatched at ${new Date().toUTCString()} via Gmail REST API
-              </div>
-            </div>
-          `,
-          text: `WAYVORA Gmail API Test\n\nGmail Connection Verified!\nDispatched from ${config.adminGmail} via Google OAuth 2.0.`
-        });
+    switch (code) {
+      case "auth/invalid-email":
+        return "The email address is formatted incorrectly. Please enter a valid email address.";
+      case "auth/user-not-found":
+        return "No account found with this email address. Please verify your email or create an account.";
+      case "auth/missing-email":
+        return "Please enter your registered email address.";
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+        return "Incorrect email or password. Please verify and try again.";
+      case "auth/expired-action-code":
+        return "This password reset link has expired. Please request a new password reset link.";
+      case "auth/invalid-action-code":
+        return "This password reset link is invalid or has already been used. Please request a new link.";
+      case "auth/email-already-in-use":
+        return "An account with this email address already exists. Try signing in instead.";
+      case "auth/weak-password":
+        return "Password is too weak. Please use at least 6 characters.";
+      case "auth/unauthorized-domain":
+        return "This website domain is not authorized for Firebase Authentication operations. Please ensure this domain is added to authorized domains in the Firebase Console.";
+      case "auth/unauthorized-continue-uri":
+      case "auth/invalid-continue-uri":
+        return "The redirect URL is not authorized by project configuration.";
+      case "auth/user-disabled":
+        return "This account has been disabled by an administrator. Please contact support.";
+      case "auth/operation-not-allowed":
+        return "Password reset via email is currently disabled in Firebase. Please enable Email/Password provider in the Firebase Console.";
+      case "auth/quota-exceeded":
+        return "Password reset quota has been exceeded. Please try again later.";
+      case "auth/network-request-failed":
+        return "Network connection issue. Please check your internet connection.";
+      case "auth/too-many-requests":
+        return "Too many unsuccessful attempts. Please wait a few moments before trying again.";
+      case "auth/internal-error":
+        return "An internal Firebase Authentication error occurred. Please try again.";
+      default:
+        return msg || "Authentication request failed. Please check your credentials.";
+    }
+  },
 
-        if (!testResult.success) {
-          return sendJsonResponse(res, 400, {
-            success: false,
-            error: testResult.error,
-            provider: 'gmail'
-          });
+  // =================== UI BINDINGS & MODAL CONTROLLERS ===================
+
+  bindGlobalAuthEvents() {
+    // Top nav auth button
+    document.getElementById("nav-auth-btn")?.addEventListener("click", () => {
+      this.openAuthModal();
+    });
+
+    // Mobile nav auth button
+    document.getElementById("nav-mobile-auth-btn")?.addEventListener("click", () => {
+      if (window.App && App.closeMobileMenu) App.closeMobileMenu();
+      this.openAuthModal();
+    });
+
+    // User profile dropdown toggle
+    const userBtn = document.getElementById("nav-user-btn");
+    const dropdown = document.getElementById("user-menu-dropdown");
+    if (userBtn && dropdown) {
+      userBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpen = dropdown.classList.contains("active");
+        dropdown.classList.toggle("active", !isOpen);
+        userBtn.setAttribute("aria-expanded", String(!isOpen));
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!dropdown.contains(e.target) && !userBtn.contains(e.target)) {
+          dropdown.classList.remove("active");
+          userBtn.setAttribute("aria-expanded", "false");
         }
-
-        return sendJsonResponse(res, 200, {
-          success: true,
-          verified: true,
-          messageId: testResult.id,
-          recipient: targetEmail,
-          provider: 'gmail',
-          timestamp: testResult.timestamp,
-          message: `Verification test email sent to ${targetEmail} via Gmail API (Google OAuth 2.0)!`
-        });
-      }
-
-      // Alternate fallback to SMTP if configured
-      const { getConfig: getSmtpConfig, sendTestEmailWithSmtp } = require('./gmail-smtp-service.js');
-      const smtpConfig = getSmtpConfig();
-
-      if (smtpConfig.isConfigured) {
-        const smtpTest = await sendTestEmailWithSmtp({ to: targetEmail });
-        if (!smtpTest.success) {
-          return sendJsonResponse(res, 400, {
-            success: false,
-            error: smtpTest.error,
-            provider: 'gmail_smtp'
-          });
-        }
-        return sendJsonResponse(res, 200, {
-          success: true,
-          verified: true,
-          messageId: smtpTest.id,
-          recipient: targetEmail,
-          provider: 'gmail_smtp',
-          timestamp: smtpTest.timestamp,
-          message: `Verification test email delivered to ${targetEmail} via Gmail SMTP (Nodemailer)!`
-        });
-      }
-
-      return sendJsonResponse(res, 400, {
-        success: false,
-        error: 'Gmail API is not connected. Please connect your Gmail account in the Admin Dashboard or configure GOOGLE_REFRESH_TOKEN.'
       });
     }
 
-    return sendJsonResponse(res, 404, {
-      error: 'Not found: Invalid auth endpoint'
+    // Sign out button
+    document.getElementById("btn-user-logout")?.addEventListener("click", () => {
+      if (dropdown) dropdown.classList.remove("active");
+      this.signOut();
     });
 
-  } catch (err) {
-    console.error('[GoogleAuth] Internal Handler Error:', err);
-    return sendJsonResponse(res, 500, {
-      success: false,
-      error: 'Internal server error processing Google Auth request',
-      details: err.message
+    // Mobile sign out button
+    document.getElementById("btn-user-logout-mobile")?.addEventListener("click", () => {
+      if (window.App && App.closeMobileMenu) App.closeMobileMenu();
+      this.signOut();
+    });
+
+    // Admin Dashboard triggers
+    const openAdminHandler = (e) => {
+      if (e) e.preventDefault();
+      if (dropdown) dropdown.classList.remove("active");
+      if (window.App && typeof App.closeMobileMenu === "function") App.closeMobileMenu();
+      if (window.AdminDashboard && typeof window.AdminDashboard.open === "function") {
+        window.AdminDashboard.open();
+      } else {
+        window.location.hash = "admin";
+      }
+    };
+
+    document.getElementById("nav-admin-dashboard-btn")?.addEventListener("click", openAdminHandler);
+    document.getElementById("user-menu-admin-item")?.addEventListener("click", openAdminHandler);
+    document.getElementById("mobile-admin-dashboard-btn")?.addEventListener("click", openAdminHandler);
+  },
+
+  updateNavbarUI() {
+    const unauthWrapper = document.getElementById("nav-auth-unauth");
+    const authWrapper = document.getElementById("nav-auth-authenticated");
+    const mobileUnauth = document.getElementById("mobile-auth-unauth");
+    const mobileAuth = document.getElementById("mobile-auth-authenticated");
+
+    const avatarInitial = document.getElementById("user-avatar-initials");
+    const displayNameEl = document.getElementById("user-display-name");
+    const menuNameEl = document.getElementById("user-menu-name");
+    const menuEmailEl = document.getElementById("user-menu-email");
+
+    const mobileMenuNameEl = document.getElementById("mobile-user-name");
+    const mobileMenuEmailEl = document.getElementById("mobile-user-email");
+    const mobileAvatarInitial = document.getElementById("mobile-user-avatar");
+
+    if (this.currentUser) {
+      const name = this.currentUser.displayName || "Traveler";
+      const initial = name.charAt(0).toUpperCase();
+
+      if (unauthWrapper) unauthWrapper.style.display = "none";
+      if (authWrapper) authWrapper.style.display = "flex";
+      if (mobileUnauth) mobileUnauth.style.display = "none";
+      if (mobileAuth) mobileAuth.style.display = "block";
+
+      if (avatarInitial) avatarInitial.textContent = initial;
+      if (displayNameEl) displayNameEl.textContent = name;
+      if (menuNameEl) menuNameEl.textContent = name;
+      if (menuEmailEl) menuEmailEl.textContent = this.currentUser.email || "";
+
+      if (mobileAvatarInitial) mobileAvatarInitial.textContent = initial;
+      if (mobileMenuNameEl) mobileMenuNameEl.textContent = name;
+      if (mobileMenuEmailEl) mobileMenuEmailEl.textContent = this.currentUser.email || "";
+    } else {
+      if (unauthWrapper) unauthWrapper.style.display = "flex";
+      if (authWrapper) authWrapper.style.display = "none";
+      if (mobileUnauth) mobileUnauth.style.display = "block";
+      if (mobileAuth) mobileAuth.style.display = "none";
+    }
+
+    // Toggle Private Developer Admin Dashboard Access
+    const isAdm = this.isAdministrator();
+    const adminNavBtn = document.getElementById("nav-admin-dashboard-btn");
+    const mobileAdminBtn = document.getElementById("mobile-admin-dashboard-btn");
+    const dropdownAdminItem = document.getElementById("user-menu-admin-item");
+
+    if (adminNavBtn) adminNavBtn.style.display = isAdm ? "inline-flex" : "none";
+    if (mobileAdminBtn) mobileAdminBtn.style.display = isAdm ? "block" : "none";
+    if (dropdownAdminItem) dropdownAdminItem.style.display = isAdm ? "block" : "none";
+  },
+
+  /**
+   * Open the Authentication Modal
+   */
+  openAuthModal(reasonPrompt = null, initialTab = "login") {
+    let modal = document.getElementById("auth-modal");
+    if (!modal) {
+      this.createAuthModalDOM();
+      modal = document.getElementById("auth-modal");
+    }
+
+    const reasonEl = document.getElementById("auth-modal-reason");
+    if (reasonEl) {
+      if (reasonPrompt) {
+        reasonEl.textContent = reasonPrompt;
+        reasonEl.style.display = "block";
+      } else {
+        reasonEl.style.display = "none";
+      }
+    }
+
+    // Update status banner for Firebase connection
+    this.updateFirebaseStatusBanner();
+
+    // Switch to initial tab
+    this.switchAuthTab(initialTab);
+
+    // Clear any previous error messages
+    this.setAuthError("");
+
+    modal.classList.add("active");
+    document.body.style.overflow = "hidden";
+
+    // Reset dialog scroll position to top
+    const dialog = modal.querySelector(".auth-dialog");
+    if (dialog) dialog.scrollTop = 0;
+  },
+
+  closeAuthModal() {
+    const modal = document.getElementById("auth-modal");
+    if (modal) {
+      modal.classList.remove("active");
+      document.body.style.overflow = "";
+    }
+  },
+
+  switchAuthTab(tabName) {
+    const tabsNav = document.getElementById("auth-tabs-nav");
+    if (tabsNav) {
+      tabsNav.style.display = (tabName === "forgot" || tabName === "confirm_reset") ? "none" : "flex";
+    }
+
+    const tabs = document.querySelectorAll(".auth-tab-btn");
+    tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === tabName));
+
+    const panels = {
+      login: document.getElementById("auth-panel-login"),
+      signup: document.getElementById("auth-panel-signup"),
+      forgot: document.getElementById("auth-panel-forgot"),
+      confirm_reset: document.getElementById("auth-panel-confirm-reset")
+    };
+
+    Object.keys(panels).forEach(key => {
+      if (panels[key]) {
+        panels[key].style.display = key === tabName ? "block" : "none";
+      }
+    });
+
+    // If switching to forgot password, prefill email if user already typed in login
+    if (tabName === "forgot") {
+      const loginEmail = document.getElementById("login-email")?.value.trim();
+      const forgotEmail = document.getElementById("forgot-email");
+      if (loginEmail && forgotEmail && !forgotEmail.value) {
+        forgotEmail.value = loginEmail;
+      }
+    }
+
+    this.setAuthError("");
+    this.setAuthSuccess("");
+
+    // Reset scroll position to top when switching auth panels
+    const dialog = document.querySelector(".auth-dialog");
+    if (dialog) dialog.scrollTop = 0;
+
+    // Reset any revealed password fields back to masked
+    document.querySelectorAll(".btn-toggle-password").forEach(btn => {
+      const targetId = btn.getAttribute("data-target");
+      const input = document.getElementById(targetId);
+      if (input && input.type === "text") {
+        input.type = "password";
+        btn.innerHTML = this.icons.eye;
+        btn.setAttribute("aria-label", "Show password");
+        btn.setAttribute("title", "Show password");
+        btn.classList.remove("is-revealed");
+      }
+    });
+  },
+
+  setAuthError(message) {
+    const errContainer = document.getElementById("auth-error-banner");
+    const succContainer = document.getElementById("auth-success-banner");
+    if (message && succContainer) {
+      succContainer.textContent = "";
+      succContainer.style.display = "none";
+    }
+    if (errContainer) {
+      if (message) {
+        errContainer.textContent = message;
+        errContainer.style.display = "block";
+      } else {
+        errContainer.textContent = "";
+        errContainer.style.display = "none";
+      }
+    }
+  },
+
+  setAuthSuccess(message) {
+    const errContainer = document.getElementById("auth-error-banner");
+    const succContainer = document.getElementById("auth-success-banner");
+    if (message && errContainer) {
+      errContainer.textContent = "";
+      errContainer.style.display = "none";
+    }
+    if (succContainer) {
+      if (message) {
+        succContainer.textContent = message;
+        succContainer.style.display = "block";
+      } else {
+        succContainer.textContent = "";
+        succContainer.style.display = "none";
+      }
+    }
+  },
+
+  updateFirebaseStatusBanner() {
+    const banner = document.getElementById("auth-firebase-status-banner");
+    if (!banner) return;
+
+    const isConfigured = window.isFirebaseConfigured ? window.isFirebaseConfigured() : false;
+    if (isConfigured) {
+      banner.className = "auth-config-banner banner-live";
+      banner.innerHTML = `
+        <span class="status-dot dot-live"></span>
+        <span><strong>Live Backend:</strong> Connected to Google Firebase Authentication</span>
+      `;
+    } else {
+      banner.className = "auth-config-banner banner-pending";
+      banner.innerHTML = `
+        <div class="banner-top-row">
+          <span class="status-dot dot-pending"></span>
+          <span><strong>Firebase Configuration Needed:</strong> Live cloud authentication requires your Firebase keys in <code>js/firebase-config.js</code>.</span>
+        </div>
+        <div class="banner-actions-row">
+          <button type="button" class="btn btn-xs btn-outline" id="btn-view-setup-guide">View Setup Instructions</button>
+          <button type="button" class="btn btn-xs btn-primary-soft" id="btn-quick-demo-login">Test Demo Account</button>
+        </div>
+      `;
+
+      banner.querySelector("#btn-view-setup-guide")?.addEventListener("click", () => {
+        this.openSetupGuideModal();
+      });
+
+      banner.querySelector("#btn-quick-demo-login")?.addEventListener("click", () => {
+        this.loginDemoUser();
+      });
+    }
+  },
+
+  /**
+   * Create dynamic Auth modal DOM structure
+   */
+  createAuthModalDOM() {
+    let modal = document.createElement("div");
+    modal.id = "auth-modal";
+    modal.className = "modal-overlay auth-modal-overlay";
+
+    modal.innerHTML = `
+      <div class="modal-dialog auth-dialog animate-scale-up" role="dialog" aria-modal="true">
+        <button class="modal-close-btn" id="auth-modal-close" aria-label="Close dialog">
+          ${window.UI ? UI.icons.x : '✕'}
+        </button>
+
+        <div class="auth-header">
+          <div class="brand-icon-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+            </svg>
+          </div>
+          <h2 class="auth-title">Wayvora Account</h2>
+          <p class="auth-subtitle">Sign in to save your personal itineraries, sync bucket lists, and plan trips.</p>
+          <div class="auth-context-reason" id="auth-modal-reason" style="display: none;"></div>
+        </div>
+
+        <!-- Firebase status info banner -->
+        <div id="auth-firebase-status-banner" class="auth-config-banner banner-pending"></div>
+
+        <!-- Feedback error / success banners -->
+        <div class="auth-alert alert-error" id="auth-error-banner" style="display: none;"></div>
+        <div class="auth-alert alert-success" id="auth-success-banner" style="display: none;"></div>
+
+        <!-- Auth Tabs (Sign In & Create Account only) -->
+        <div class="auth-tabs-nav" id="auth-tabs-nav">
+          <button class="auth-tab-btn active" data-tab="login">Sign In</button>
+          <button class="auth-tab-btn" data-tab="signup">Create Account</button>
+        </div>
+
+        <!-- ================= PANEL 1: LOGIN ================= -->
+        <div class="auth-panel" id="auth-panel-login">
+          <form id="form-auth-login" class="auth-form" novalidate>
+            <div class="form-group">
+              <label for="login-email">Registered Email Address</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                </span>
+                <input type="email" id="login-email" class="form-control" placeholder="name@example.com" required autocomplete="email" />
+              </div>
+            </div>
+
+            <div class="form-group mb-1">
+              <label for="login-password">WAYVORA Password</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </span>
+                <input type="password" id="login-password" class="form-control has-toggle-password" placeholder="Enter your WAYVORA password" required autocomplete="current-password" />
+                <button type="button" class="btn-toggle-password" data-target="login-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <!-- Single Forgot Password link directly below password input -->
+            <div class="auth-forgot-link-wrap">
+              <button type="button" class="btn-text-link" id="link-goto-forgot">Forgot Password?</button>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg mt-3" id="btn-submit-login">
+              Sign In to Wayvora
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt">
+            <span>Don't have an account yet?</span>
+            <button type="button" class="btn-text-link font-semibold" id="link-goto-signup">Create one now</button>
+          </div>
+        </div>
+
+        <!-- ================= PANEL 2: SIGN UP ================= -->
+        <div class="auth-panel" id="auth-panel-signup" style="display: none;">
+          <form id="form-auth-signup" class="auth-form" novalidate>
+            <div class="form-group">
+              <label for="signup-name">Full Name</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </span>
+                <input type="text" id="signup-name" class="form-control" placeholder="e.g. Maya Sharma" required autocomplete="name" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signup-email">Email Address</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                </span>
+                <input type="email" id="signup-email" class="form-control" placeholder="name@example.com" required autocomplete="email" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signup-password">Create WAYVORA Password</label>
+              <span class="text-xs text-muted block mb-1">Create a unique password (min. 6 characters). <strong>Do NOT enter your personal Gmail or Google account password.</strong></span>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </span>
+                <input type="password" id="signup-password" class="form-control has-toggle-password" placeholder="Create a strong password (min 6 characters)" minlength="6" required autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="signup-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signup-confirm-password">Confirm WAYVORA Password</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </span>
+                <input type="password" id="signup-confirm-password" class="form-control has-toggle-password" placeholder="Repeat your WAYVORA password" minlength="6" required autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="signup-confirm-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg mt-3" id="btn-submit-signup">
+              Create My Free Account
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt">
+            <span>Already have an account?</span>
+            <button type="button" class="btn-text-link font-semibold" id="link-goto-login">Sign in instead</button>
+          </div>
+        </div>
+
+        <!-- ================= PANEL 3: FORGOT PASSWORD ================= -->
+        <div class="auth-panel" id="auth-panel-forgot" style="display: none;">
+          <div class="auth-panel-header mb-3">
+            <h3 class="font-bold text-lg" style="color: var(--text-main); margin-bottom: 0.25rem;">Reset Your Password</h3>
+            <p class="text-muted text-sm">
+              Enter the email address registered with your Wayvora account. We will send a secure Firebase password-reset link to your inbox.
+            </p>
+          </div>
+
+          <form id="form-auth-forgot" class="auth-form" novalidate>
+            <div class="form-group">
+              <label for="forgot-email">Registered Email Address</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                </span>
+                <input type="email" id="forgot-email" class="form-control" placeholder="name@example.com" required autocomplete="email" />
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg mt-3" id="btn-submit-forgot">
+              Send Password Reset Link
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt mt-3">
+            <button type="button" class="btn-text-link font-semibold" id="link-back-login">← Back to Sign In</button>
+          </div>
+        </div>
+
+        <!-- ================= PANEL 4: CONFIRM PASSWORD RESET ================= -->
+        <div class="auth-panel" id="auth-panel-confirm-reset" style="display: none;">
+          <div class="auth-panel-header mb-3">
+            <h3 class="font-bold text-lg" style="color: var(--text-main); margin-bottom: 0.25rem;">Create New WAYVORA Password</h3>
+            <p class="text-muted text-sm">
+              Your password-reset link has been verified. Please create and confirm your new WAYVORA password below.
+            </p>
+            <div class="alert alert-info py-2 px-3 mb-2 text-xs" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px;">
+              Resetting account: <strong id="reset-email-text" style="color: #0284c7;">traveler@example.com</strong>
+            </div>
+          </div>
+
+          <form id="form-auth-confirm-reset" class="auth-form" novalidate>
+            <div class="form-group">
+              <label for="reset-new-password">New WAYVORA Password</label>
+              <span class="text-xs text-muted block mb-1">Create a unique password (min 6 characters). <strong>Do NOT enter your Gmail password.</strong></span>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </span>
+                <input type="password" id="reset-new-password" class="form-control has-toggle-password" placeholder="At least 6 characters" minlength="6" required autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="reset-new-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="reset-confirm-password">Confirm New WAYVORA Password</label>
+              <div class="input-with-icon">
+                <span class="input-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </span>
+                <input type="password" id="reset-confirm-password" class="form-control has-toggle-password" placeholder="Re-enter your new password" minlength="6" required autocomplete="new-password" />
+                <button type="button" class="btn-toggle-password" data-target="reset-confirm-password" aria-label="Show password" title="Show password">
+                  ${this.icons.eye}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg mt-3" id="btn-submit-reset-confirm">
+              Save New Password &amp; Sign In
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt mt-3">
+            <button type="button" class="btn-text-link font-semibold" id="link-reset-to-login">← Back to Sign In</button>
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Event listeners
+    modal.querySelector("#auth-modal-close")?.addEventListener("click", () => this.closeAuthModal());
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) this.closeAuthModal();
+    });
+
+    // Tab buttons
+    modal.querySelectorAll(".auth-tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => this.switchAuthTab(btn.dataset.tab));
+    });
+
+    // Quick switch links
+    modal.querySelector("#link-goto-signup")?.addEventListener("click", () => this.switchAuthTab("signup"));
+    modal.querySelector("#link-goto-login")?.addEventListener("click", () => this.switchAuthTab("login"));
+    modal.querySelector("#link-goto-forgot")?.addEventListener("click", () => this.switchAuthTab("forgot"));
+    modal.querySelector("#link-back-login")?.addEventListener("click", () => this.switchAuthTab("login"));
+    modal.querySelector("#link-reset-to-login")?.addEventListener("click", () => this.switchAuthTab("login"));
+
+    // Toggle Password Visibility (Show / Hide Password)
+    modal.querySelectorAll(".btn-toggle-password").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const targetId = btn.getAttribute("data-target");
+        const input = document.getElementById(targetId);
+        if (!input) return;
+
+        const isPassword = input.type === "password";
+        input.type = isPassword ? "text" : "password";
+        btn.innerHTML = isPassword ? this.icons.eyeOff : this.icons.eye;
+        btn.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
+        btn.setAttribute("title", isPassword ? "Hide password" : "Show password");
+        btn.classList.toggle("is-revealed", isPassword);
+        input.focus();
+      });
+    });
+
+    // Form Submissions
+    // 1. Login
+    modal.querySelector("#form-auth-login")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      this.setAuthError("");
+      const email = document.getElementById("login-email").value.trim();
+      const pass = document.getElementById("login-password").value;
+      const submitBtn = document.getElementById("btn-submit-login");
+
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Signing In...";
+        await this.signIn(email, pass);
+        if (window.UI) UI.showToast("Signed in successfully!", "success");
+      } catch (err) {
+        this.setAuthError(err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Sign In to Wayvora";
+      }
+    });
+
+    // 2. Sign Up
+    modal.querySelector("#form-auth-signup")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      this.setAuthError("");
+      const name = document.getElementById("signup-name").value.trim();
+      const email = document.getElementById("signup-email").value.trim();
+      const pass = document.getElementById("signup-password").value;
+      const confirmPass = document.getElementById("signup-confirm-password").value;
+      const submitBtn = document.getElementById("btn-submit-signup");
+
+      if (pass !== confirmPass) {
+        this.setAuthError("Passwords do not match. Please re-enter.");
+        return;
+      }
+
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Creating Account...";
+        await this.signUp(name, email, pass);
+        if (window.UI) UI.showToast(`Welcome to Wayvora, ${name}!`, "success");
+      } catch (err) {
+        this.setAuthError(err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Create My Free Account";
+      }
+    });
+
+    // 3. Forgot Password
+    modal.querySelector("#form-auth-forgot")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      this.setAuthError("");
+      this.setAuthSuccess("");
+      const emailInput = document.getElementById("forgot-email");
+      const email = emailInput ? emailInput.value.trim() : "";
+      const submitBtn = document.getElementById("btn-submit-forgot");
+
+      if (!email) {
+        this.setAuthError("Please enter your registered email address.");
+        return;
+      }
+
+      if (!this.isValidEmail(email)) {
+        this.setAuthError("Please enter a valid email address (e.g. name@example.com).");
+        return;
+      }
+
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Requesting Reset Link from Firebase...";
+        await this.resetPassword(email);
+        this.setAuthSuccess(`If an account exists for ${email}, a password-reset link has been dispatched to your inbox. Please check your spam or junk folder if you don't see it within a few minutes.`);
+        if (window.UI) UI.showToast("Password reset request submitted!", "success");
+      } catch (err) {
+        if (err.code === "auth/user-not-found" || (err.message && err.message.includes("user-not-found"))) {
+          this.setAuthSuccess(`If an account exists for ${email}, a password-reset link has been dispatched to your inbox. Please check your spam or junk folder.`);
+        } else {
+          this.setAuthError(err.message);
+        }
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send Password Reset Link";
+      }
+    });
+
+    // 4. Confirm Password Reset (New Password)
+    modal.querySelector("#form-auth-confirm-reset")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      this.setAuthError("");
+      this.setAuthSuccess("");
+      const newPass = document.getElementById("reset-new-password")?.value || "";
+      const confirmPass = document.getElementById("reset-confirm-password")?.value || "";
+      const submitBtn = document.getElementById("btn-submit-reset-confirm");
+
+      if (!newPass || newPass.length < 6) {
+        this.setAuthError("Password must be at least 6 characters long.");
+        return;
+      }
+
+      if (newPass !== confirmPass) {
+        this.setAuthError("Passwords do not match. Please verify that both password fields are identical.");
+        return;
+      }
+
+      const oobCode = this.pendingResetOobCode;
+      if (!oobCode) {
+        this.setAuthError("Password reset session expired. Please request a new reset link.");
+        return;
+      }
+
+      try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Updating Password...";
+        }
+        await this.confirmPasswordReset(oobCode, newPass);
+
+        const email = this.pendingResetEmail || "";
+        this.pendingResetOobCode = null;
+        this.pendingResetEmail = null;
+
+        // Clean query parameters from URL
+        try {
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch (uErr) {}
+
+        // Switch to sign in tab with email prefilled
+        this.switchAuthTab("login");
+        if (email) {
+          const loginEmail = document.getElementById("login-email");
+          if (loginEmail) loginEmail.value = email;
+          const loginPass = document.getElementById("login-password");
+          if (loginPass) {
+            loginPass.value = "";
+            loginPass.focus();
+          }
+        }
+
+        this.setAuthSuccess("Your WAYVORA password has been updated successfully! Please sign in with your new password.");
+        if (window.UI) UI.showToast("Password updated successfully! Please sign in.", "success");
+
+      } catch (err) {
+        this.setAuthError(err.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Save New Password & Sign In";
+        }
+      }
+    });
+  },
+
+  /**
+   * Dedicated modal displaying exact Firebase setup steps
+   */
+  openSetupGuideModal() {
+    let guideModal = document.getElementById("firebase-setup-guide-modal");
+    if (!guideModal) {
+      guideModal = document.createElement("div");
+      guideModal.id = "firebase-setup-guide-modal";
+      guideModal.className = "modal-overlay";
+      document.body.appendChild(guideModal);
+    }
+
+    guideModal.innerHTML = `
+      <div class="modal-dialog modal-lg animate-scale-up" role="dialog" aria-modal="true" style="max-width: 680px;">
+        <button class="modal-close-btn" id="guide-modal-close" aria-label="Close dialog">
+          ${window.UI ? UI.icons.x : '✕'}
+        </button>
+
+        <div class="modal-header-simple">
+          <div class="icon-circle bg-primary-soft">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24a1.78 1.78 0 0 0-2.5 1.55v12.42a1.78 1.78 0 0 0 2.5 1.55L16.5 14.6a1.78 1.78 0 0 0 0-3.2z"></path></svg>
+          </div>
+          <div>
+            <h3>Google Firebase Setup Guide</h3>
+            <p class="text-muted text-sm">Step-by-step instructions to connect live Firebase Authentication</p>
+          </div>
+        </div>
+
+        <div class="guide-steps-list" style="max-height: 60vh; overflow-y: auto; padding-right: 0.5rem;">
+          <div class="guide-step-card">
+            <div class="step-badge">Step 1</div>
+            <div class="step-content">
+              <h4>Open Firebase Console</h4>
+              <p>Go to <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">https://console.firebase.google.com/</a> and log in with your Google account.</p>
+            </div>
+          </div>
+
+          <div class="guide-step-card">
+            <div class="step-badge">Step 2</div>
+            <div class="step-content">
+              <h4>Create or Select a Firebase Project</h4>
+              <p>Click <strong>"Add project"</strong>, enter a name like <code>Wayvora Travel</code>, and follow the simple on-screen prompts.</p>
+            </div>
+          </div>
+
+          <div class="guide-step-card">
+            <div class="step-badge">Step 3</div>
+            <div class="step-content">
+              <h4>Add a Web App (<code>&lt;/&gt;</code>)</h4>
+              <p>In the project dashboard, click the Web icon (<code>&lt;/&gt;</code>) to register an app. Name it <code>Wayvora Web</code>.</p>
+              <p>Firebase will display your configuration credentials containing <code>apiKey</code>, <code>projectId</code>, <code>authDomain</code>, etc.</p>
+            </div>
+          </div>
+
+          <div class="guide-step-card">
+            <div class="step-badge">Step 4</div>
+            <div class="step-content">
+              <h4>Enable Email / Password Sign-In</h4>
+              <p>In the left sidebar, navigate to <strong>Build → Authentication → Sign-in method</strong>.</p>
+              <p>Click on <strong>Email/Password</strong>, switch the <strong>Enable</strong> toggle to ON, and save.</p>
+            </div>
+          </div>
+
+          <div class="guide-step-card">
+            <div class="step-badge">Step 5</div>
+            <div class="step-content">
+              <h4>Paste Keys into <code>js/firebase-config.js</code></h4>
+              <p>Open <code>c:\\Users\\HP\\Desktop\\Wayvora\\js\\firebase-config.js</code> in your editor and paste the values into the <code>FIREBASE_CONFIG</code> object:</p>
+              <pre class="code-preview-block"><code>const FIREBASE_CONFIG = {
+  apiKey: "AIzaSy...",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project-id",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abcdef..."
+};</code></pre>
+            </div>
+          </div>
+
+          <div class="guide-step-card">
+            <div class="step-badge">Step 6 (Optional)</div>
+            <div class="step-content">
+              <h4>Enable Cloud Firestore (For Cloud Data Sync)</h4>
+              <p>Go to <strong>Build → Firestore Database → Create database</strong> (choose Start in Test mode for development). Users' saved trips and favourites will automatically sync across devices!</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-form-actions mt-4">
+          <button type="button" class="btn btn-primary" id="btn-close-guide">Understood, Got It!</button>
+        </div>
+      </div>
+    `;
+
+    guideModal.classList.add("active");
+
+    const close = () => guideModal.classList.remove("active");
+    guideModal.querySelector("#guide-modal-close").addEventListener("click", close);
+    guideModal.querySelector("#btn-close-guide").addEventListener("click", close);
+    guideModal.addEventListener("click", (e) => {
+      if (e.target === guideModal) close();
     });
   }
+};
+
+// Global export
+if (typeof window !== "undefined") {
+  window.AuthService = AuthService;
 }
 
-function sendJsonResponse(res, statusCode, data) {
-  if (typeof res.status === 'function') {
-    return res.status(statusCode).json(data);
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = AuthService;
+}
+
+// Auto initialize on DOMContentLoaded or immediately if DOM is ready
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => AuthService.init());
+  } else {
+    AuthService.init();
   }
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(data));
 }
-
-function renderHtmlResponse(res, statusCode, html) {
-  const buf = Buffer.from(html, 'utf8');
-  if (typeof res.status === 'function') {
-    res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-    res.setHeader('Content-Length', buf.length);
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return res.status(statusCode).send(html);
-  }
-  res.writeHead(statusCode, {
-    'Content-Type': 'text/html; charset=UTF-8',
-    'Content-Length': buf.length,
-    'Cache-Control': 'no-store, no-cache, must-revalidate'
-  });
-  res.end(buf);
-}
-
-function renderSuccessPage() {
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WAYVORA - Gmail Connected Successfully</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 20px;
-      background-color: #0b1120;
-      background-image: radial-gradient(ellipse at top, #1e293b 0%, #0b1120 100%);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      color: #f8fafc;
-    }
-    .card {
-      background: #1e293b;
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 16px;
-      padding: 44px 36px;
-      max-width: 500px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-    }
-    .icon-badge {
-      width: 76px;
-      height: 76px;
-      border-radius: 50%;
-      background: rgba(34, 197, 94, 0.15);
-      border: 2px solid #22c55e;
-      color: #22c55e;
-      font-size: 38px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 22px;
-      box-shadow: 0 0 25px rgba(34, 197, 94, 0.25);
-    }
-    h1 {
-      margin: 0 0 10px 0;
-      font-size: 24px;
-      font-weight: 700;
-      color: #ffffff;
-      letter-spacing: -0.3px;
-    }
-    .badge {
-      display: inline-block;
-      background: rgba(34, 197, 94, 0.18);
-      color: #4ade80;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      margin-bottom: 18px;
-      border: 1px solid rgba(74, 222, 128, 0.3);
-    }
-    p {
-      margin: 0 0 26px 0;
-      color: #94a3b8;
-      font-size: 14.5px;
-      line-height: 1.6;
-    }
-    .account-pill {
-      background: #0f172a;
-      border: 1px solid #334155;
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-family: monospace;
-      color: #38bdf8;
-      font-size: 13.5px;
-      margin-bottom: 24px;
-      word-break: break-all;
-    }
-    .btn {
-      display: inline-block;
-      width: 100%;
-      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-      color: #ffffff;
-      padding: 13px 24px;
-      border-radius: 10px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 15px;
-      transition: all 0.2s ease;
-      border: none;
-      cursor: pointer;
-      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
-    }
-    .btn:hover {
-      background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
-      transform: translateY(-1px);
-    }
-    .subtext {
-      font-size: 12.5px;
-      color: #64748b;
-      margin-top: 20px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon-badge">✓</div>
-    <div class="badge">OAuth2 Authorization Complete</div>
-    <h1>Admin Gmail Connected!</h1>
-    <div class="account-pill">wayvora.admin@gmail.com</div>
-    <p>WAYVORA is now securely authenticated with Google Cloud. All customer support replies dispatched from the Admin Portal will be delivered directly from your verified Gmail address.</p>
-    
-    <button type="button" class="btn" id="btn-return" onclick="returnToAdmin()">
-      Return to Admin Dashboard
-    </button>
-    <div class="subtext">
-      Automatically syncing with dashboard in <span id="countdown">2</span>s...
-    </div>
-  </div>
-
-  <script>
-    // 1. Post message to opener window if accessible
-    try {
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage({ type: 'GMAIL_AUTH_SUCCESS', email: 'wayvora.admin@gmail.com' }, '*');
-      }
-    } catch (e) {}
-
-    // 2. BroadcastChannel: Notifies Admin Dashboard across tabs/windows even if COOP blocks opener
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        const bc = new BroadcastChannel('wayvora_gmail_oauth');
-        bc.postMessage({ type: 'GMAIL_AUTH_SUCCESS', email: 'wayvora.admin@gmail.com', timestamp: Date.now() });
-        setTimeout(() => bc.close(), 1000);
-      }
-    } catch (e) {}
-
-    // 3. LocalStorage event for cross-tab notification
-    try {
-      localStorage.setItem('wayvora_gmail_oauth_event', JSON.stringify({
-        type: 'GMAIL_AUTH_SUCCESS',
-        email: 'wayvora.admin@gmail.com',
-        timestamp: Date.now()
-      }));
-    } catch (e) {}
-
-    function returnToAdmin() {
-      // If running inside popup window, attempt to close
-      if (window.opener || window.name === 'wayvora_gmail_oauth') {
-        try { window.close(); } catch (e) {}
-      }
-      // Navigate to admin dashboard
-      window.location.href = '/?gmail_status=connected#admin';
-    }
-
-    let secondsLeft = 2;
-    const cdEl = document.getElementById('countdown');
-    const timer = setInterval(() => {
-      secondsLeft--;
-      if (cdEl) cdEl.textContent = secondsLeft;
-      if (secondsLeft <= 0) {
-        clearInterval(timer);
-        returnToAdmin();
-      }
-    }, 1000);
-  </script>
-</body>
-</html>
-  `.trim();
-}
-
-function renderErrorPage(title, message) {
-  const safeTitle = (title || 'Authorization Error').replace(/[<>&"]/g, '');
-  const safeMessage = (message || 'Unable to complete Google OAuth authorization.').replace(/[<>&"]/g, '');
-
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WAYVORA - ${safeTitle}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 20px;
-      background-color: #0b1120;
-      background-image: radial-gradient(ellipse at top, #1e293b 0%, #0b1120 100%);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      color: #f8fafc;
-    }
-    .card {
-      background: #1e293b;
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      border-radius: 16px;
-      padding: 44px 36px;
-      max-width: 500px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-    }
-    .icon-badge {
-      width: 76px;
-      height: 76px;
-      border-radius: 50%;
-      background: rgba(239, 68, 68, 0.15);
-      border: 2px solid #ef4444;
-      color: #ef4444;
-      font-size: 38px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 22px;
-      box-shadow: 0 0 25px rgba(239, 68, 68, 0.25);
-    }
-    h1 {
-      margin: 0 0 10px 0;
-      font-size: 24px;
-      font-weight: 700;
-      color: #ffffff;
-      letter-spacing: -0.3px;
-    }
-    .badge {
-      display: inline-block;
-      background: rgba(239, 68, 68, 0.18);
-      color: #f87171;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      margin-bottom: 18px;
-      border: 1px solid rgba(248, 113, 113, 0.3);
-    }
-    p {
-      margin: 0 0 24px 0;
-      color: #94a3b8;
-      font-size: 14.5px;
-      line-height: 1.6;
-    }
-    .error-box {
-      background: #0f172a;
-      border: 1px solid #334155;
-      padding: 12px 16px;
-      border-radius: 8px;
-      font-family: monospace;
-      color: #fca5a5;
-      font-size: 13px;
-      margin-bottom: 26px;
-      word-break: break-all;
-      text-align: left;
-    }
-    .btn {
-      display: inline-block;
-      width: 100%;
-      background: #334155;
-      color: #ffffff;
-      padding: 13px 24px;
-      border-radius: 10px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 15px;
-      transition: all 0.2s ease;
-      border: none;
-      cursor: pointer;
-    }
-    .btn:hover {
-      background: #475569;
-    }
-    .subtext {
-      font-size: 12.5px;
-      color: #64748b;
-      margin-top: 18px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon-badge">!</div>
-    <div class="badge">Connection Incomplete</div>
-    <h1>${safeTitle}</h1>
-    <p>Google OAuth could not complete token authorization.</p>
-    <div class="error-box">${safeMessage}</div>
-    
-    <button type="button" class="btn" onclick="returnToAdmin()">
-      Return to Admin Dashboard
-    </button>
-    <div class="subtext">
-      Please check your Google Cloud Redirect URI settings or try connecting again.
-    </div>
-  </div>
-
-  <script>
-    try {
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage({ type: 'GMAIL_AUTH_FAILED', error: ${JSON.stringify(safeMessage)} }, '*');
-      }
-    } catch (e) {}
-
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        const bc = new BroadcastChannel('wayvora_gmail_oauth');
-        bc.postMessage({ type: 'GMAIL_AUTH_FAILED', error: ${JSON.stringify(safeMessage)}, timestamp: Date.now() });
-        setTimeout(() => bc.close(), 1000);
-      }
-    } catch (e) {}
-
-    try {
-      localStorage.setItem('wayvora_gmail_oauth_event', JSON.stringify({
-        type: 'GMAIL_AUTH_FAILED',
-        error: ${JSON.stringify(safeMessage)},
-        timestamp: Date.now()
-      }));
-    } catch (e) {}
-
-    function returnToAdmin() {
-      if (window.opener || window.name === 'wayvora_gmail_oauth') {
-        try { window.close(); } catch (e) {}
-      }
-      window.location.href = '/?gmail_status=failed#admin';
-    }
-  </script>
-</body>
-</html>
-  `.trim();
-}
-
-module.exports = handleAuthRequest;
