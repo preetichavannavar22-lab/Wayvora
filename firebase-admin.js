@@ -150,14 +150,28 @@ function initFirebaseAdmin() {
 }
 
 /**
+ * Helper to get the Firebase Web API Key for REST fallbacks.
+ * Resolves from environment variables first, falling back to central config.
+ */
+function getFirebaseApiKey() {
+  if (process.env.FIREBASE_API_KEY) return process.env.FIREBASE_API_KEY;
+  if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) return process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+  if (process.env.VITE_FIREBASE_API_KEY) return process.env.VITE_FIREBASE_API_KEY;
+  try {
+    const fbConfig = require('../js/firebase-config.js');
+    if (fbConfig && fbConfig.FIREBASE_CONFIG && fbConfig.FIREBASE_CONFIG.apiKey) {
+      return fbConfig.FIREBASE_CONFIG.apiKey;
+    }
+  } catch (_) {}
+  return '';
+}
+
+/**
  * Save support request via Firestore REST API when Admin db is unavailable
  */
 async function saveSupportTicketViaRest({ name, email, category, message, userId, ticketId, registeredEmail, source, idToken }) {
   const projectId = process.env.FIREBASE_PROJECT_ID || 'wayvora-96c3d';
-  const apiKey = process.env.FIREBASE_API_KEY ||
-                 process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
-                 process.env.VITE_FIREBASE_API_KEY ||
-                 'AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk';
+  const apiKey = getFirebaseApiKey();
 
   const nowIso = new Date().toISOString();
   const fields = {
@@ -341,10 +355,7 @@ async function verifyUserAuthToken(idToken) {
 
   // 2. Fallback to Google Identity Toolkit REST API
   try {
-    const apiKey = process.env.FIREBASE_API_KEY ||
-                   process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
-                   process.env.VITE_FIREBASE_API_KEY ||
-                   'AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk';
+    const apiKey = getFirebaseApiKey();
 
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
     const res = await fetch(url, {
