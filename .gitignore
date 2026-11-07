@@ -9,8 +9,10 @@ scripts/serviceAccountKey.json
 gmail-token*.json
 oauth*.json
 tokens/
+# Local Environment Variables & Secrets
 .env
-.env.local
+.env.*
+!.env.example
 
 # Node & dependencies
 node_modules/
