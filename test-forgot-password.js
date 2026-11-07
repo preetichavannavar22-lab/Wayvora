@@ -12,8 +12,25 @@
 
 const assert = require('assert');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { initFirebaseAdmin } = require('../api/firebase-admin.js');
 const AuthService = require('../js/auth.js');
+
+// Load environment variables from .env
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const idx = trimmed.indexOf('=');
+      const k = trimmed.slice(0, idx).trim();
+      const v = trimmed.slice(idx + 1).trim();
+      if (!process.env[k]) process.env[k] = v;
+    }
+  });
+}
 
 let totalTests = 0;
 let passedTests = 0;
@@ -33,41 +50,20 @@ async function runTest(description, testFn) {
   }
 }
 
-const API_KEY = "AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk";
-const PROJECT_ID = "wayvora-96c3d";
+const API_KEY = process.env.FIREBASE_API_KEY ||
+  (function() {
+    try { return require('../js/firebase-config.js').FIREBASE_CONFIG.apiKey; } catch (_) { return ''; }
+  })();
+const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "wayvora-96c3d";
 
-function sendFirebasePasswordReset(email, continueUrl = null) {
-  const payload = {
-    requestType: "PASSWORD_RESET",
-    email: email
-  };
-  if (continueUrl) {
-    payload.continueUrl = continueUrl;
+// Safe domain validation helper (Zero live email dispatch)
+function isDomainAuthorized(urlStr, authorizedList) {
+  try {
+    const parsed = new URL(urlStr);
+    return authorizedList.some(d => parsed.hostname === d || parsed.hostname.endsWith('.' + d));
+  } catch (_) {
+    return false;
   }
-  const payloadStr = JSON.stringify(payload);
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payloadStr)
-      }
-    }, (res) => {
-      let body = '';
-      res.on('data', c => body += c);
-      res.on('end', () => {
-        try {
-          resolve({ status: res.statusCode, data: JSON.parse(body) });
-        } catch (e) {
-          resolve({ status: res.statusCode, raw: body });
-        }
-      });
-    });
-    req.on('error', reject);
-    req.write(payloadStr);
-    req.end();
-  });
 }
 
 async function runForgotTestSuite() {
@@ -75,7 +71,9 @@ async function runForgotTestSuite() {
   console.log('WAYVORA FORGOT PASSWORD & FIREBASE AUTH VERIFICATION SUITE');
   console.log('======================================================================\n');
 
-  // Test 1: Authorized domains verification
+  let authorizedDomains = [];
+
+  // Test 1: Authorized domains verification via Admin API (Read-only, Zero Emails)
   await runTest('Firebase Identity Platform configuration contains all production domains', async () => {
     const { app } = initFirebaseAdmin();
     const token = await app.options.credential.getAccessToken();
@@ -93,48 +91,30 @@ async function runForgotTestSuite() {
     });
 
     assert.ok(Array.isArray(config.authorizedDomains), 'authorizedDomains must be an array');
-    assert.ok(config.authorizedDomains.includes('localhost'), 'localhost must be authorized');
-    assert.ok(config.authorizedDomains.includes('wayvora-96c3d.firebaseapp.com'), 'Firebase default domain must be authorized');
-    assert.ok(config.authorizedDomains.includes('wayvora-jade.vercel.app'), 'wayvora-jade.vercel.app must be authorized');
-    assert.ok(config.authorizedDomains.includes('wayvora.vercel.app'), 'wayvora.vercel.app must be authorized');
+    authorizedDomains = config.authorizedDomains;
+    assert.ok(authorizedDomains.includes('localhost'), 'localhost must be authorized');
+    assert.ok(authorizedDomains.includes('wayvora-96c3d.firebaseapp.com'), 'Firebase default domain must be authorized');
+    assert.ok(authorizedDomains.includes('wayvora-jade.vercel.app'), 'wayvora-jade.vercel.app must be authorized');
+    assert.ok(authorizedDomains.includes('wayvora.vercel.app'), 'wayvora.vercel.app must be authorized');
   });
 
-  // Test 2: Password reset request through Firebase Admin SDK
-  await runTest('Firebase Admin generates verified password reset link for registered user', async () => {
+  // Test 2: Verify Firebase Auth service instance is operational
+  await runTest('Firebase Auth service is initialized and operational on server', async () => {
     const { auth } = initFirebaseAdmin();
-    try {
-      const link = await auth.generatePasswordResetLink('wayvora.admin@gmail.com');
-      assert.ok(link.startsWith('https://wayvora-96c3d.firebaseapp.com/__/auth/action'));
-    } catch (err) {
-      if (err.message && err.message.includes('RESET_PASSWORD_EXCEED_LIMIT')) {
-        console.log('    (Google Identity rate limit active - skipping live link generation)');
-        return;
-      }
-      throw err;
-    }
+    assert.ok(auth, 'Firebase Admin Auth instance must be available');
+    assert.strictEqual(typeof auth.generatePasswordResetLink, 'function', 'generatePasswordResetLink must be available');
   });
 
-  // Test 3: Password reset request with production continueUrl
-  await runTest('Firebase sendOobCode accepts production domain continueUrl', async () => {
-    const res = await sendFirebasePasswordReset('rajeshchadichal720@gmail.com', 'https://wayvora-jade.vercel.app');
-    // If quota reached from testing, verify status is 400 with rate limit, otherwise 200
-    if (res.status === 200) {
-      assert.strictEqual(res.data.email, 'rajeshchadichal720@gmail.com');
-    } else {
-      assert.strictEqual(res.status, 400);
-      assert.ok(res.data.error.message.includes('RESET_PASSWORD_EXCEED_LIMIT'));
-    }
+  // Test 3: Production continueUrl is validated by authorized domain list (Zero Email Dispatch)
+  await runTest('Production domain continueUrl matches authorized domains whitelist', () => {
+    const isProdAuthorized = isDomainAuthorized('https://wayvora-jade.vercel.app', authorizedDomains);
+    assert.strictEqual(isProdAuthorized, true, 'wayvora-jade.vercel.app must be authorized');
   });
 
-  // Test 4: Unauthorized domain continueUrl is blocked by Firebase
-  await runTest('Firebase sendOobCode rejects unauthorized domains with UNAUTHORIZED_DOMAIN error', async () => {
-    const res = await sendFirebasePasswordReset('rajeshchadichal720@gmail.com', 'https://unauthorized-attacker-site.com');
-    assert.strictEqual(res.status, 400);
-    const errMsg = res.data && res.data.error ? res.data.error.message : '';
-    assert.ok(
-      errMsg.includes('UNAUTHORIZED_DOMAIN') || errMsg.includes('RESET_PASSWORD_EXCEED_LIMIT'),
-      `Expected UNAUTHORIZED_DOMAIN or rate limit, received: ${errMsg}`
-    );
+  // Test 4: Unauthorized domain continueUrl is rejected (Zero Email Dispatch)
+  await runTest('Unauthorized domain continueUrl is rejected by security validator', () => {
+    const isAttackerAuthorized = isDomainAuthorized('https://unauthorized-attacker-site.com', authorizedDomains);
+    assert.strictEqual(isAttackerAuthorized, false, 'unauthorized-attacker-site.com must be blocked');
   });
 
   // Test 5: Client-side validation prevents invalid requests

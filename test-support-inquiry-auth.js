@@ -110,7 +110,10 @@ function createMockHttp({ method = 'GET', url = '/', headers = {}, body = null }
 async function getTravelerToken(uid = 'osxwVQGMvthz4ac0jEeZSRB65Rq1') {
   const { auth } = initFirebaseAdmin();
   const customToken = await auth.createCustomToken(uid, {});
-  const apiKey = 'AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk';
+  const apiKey = process.env.FIREBASE_API_KEY ||
+    (function() {
+      try { return require('../js/firebase-config.js').FIREBASE_CONFIG.apiKey; } catch (_) { return ''; }
+    })();
   const payload = JSON.stringify({ token: customToken, returnSecureToken: true });
 
   return new Promise((resolve, reject) => {

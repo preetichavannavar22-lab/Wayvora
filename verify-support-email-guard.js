@@ -56,7 +56,10 @@ async function getAdminToken() {
   const { auth } = initFirebaseAdmin();
   if (!auth) throw new Error('Firebase Auth unavailable');
   const customToken = await auth.createCustomToken('MXMCpQFfM7Zyp865ljTXiasFB2M2', { admin: true });
-  const apiKey = "AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk";
+  const apiKey = process.env.FIREBASE_API_KEY ||
+    (function() {
+      try { return require('../js/firebase-config.js').FIREBASE_CONFIG.apiKey; } catch (_) { return ''; }
+    })();
   const payload = JSON.stringify({ token: customToken, returnSecureToken: true });
 
   return new Promise((resolve, reject) => {

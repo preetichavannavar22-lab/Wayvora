@@ -16,8 +16,25 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const https = require('https');
+
+// Load environment variables from .env
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const idx = trimmed.indexOf('=');
+      const k = trimmed.slice(0, idx).trim();
+      const v = trimmed.slice(idx + 1).trim();
+      if (!process.env[k]) process.env[k] = v;
+    }
+  });
+}
+
 const ResendService = require('../api/resend-service.js');
 const {
   saveSupportTicket,
@@ -104,7 +121,10 @@ function createMockHttp({ method = 'POST', url = '/api/support', body = {}, head
 async function getTestIdToken(uid, customClaims = {}) {
   const { auth } = initFirebaseAdmin();
   const customToken = await auth.createCustomToken(uid, customClaims);
-  const apiKey = "AIzaSyDG7-G_c1jTD5pT53xt52BRTogqlqnpcWk";
+  const apiKey = process.env.FIREBASE_API_KEY ||
+    (function() {
+      try { return require('../js/firebase-config.js').FIREBASE_CONFIG.apiKey; } catch (_) { return ''; }
+    })();
   const payload = JSON.stringify({ token: customToken, returnSecureToken: true });
 
   return new Promise((resolve, reject) => {
